@@ -123,3 +123,4 @@ python -m remote_lab.cli \
 - In redirected logs, training prints one `[epoch_summary]` line after each epoch so you can monitor loss, regularization, timing, and layerwise ratios with `tail -f`.
 - To launch baseline on GPU 2 and interval-reg on GPU 3 in one command, run `bash scripts/launch_jigsaw_pair.sh` from an activated environment. Override GPUs with `BASELINE_GPU=... INTERVAL_GPU=...`.
 - To launch the symmetric-initialization run on GPU 4, run `bash scripts/launch_jigsaw_symm.sh`. Override the GPU with `SYMM_GPU=...`.
+- To launch the newer comparison run with `linear_hinge + lambda 0.5` on GPU 2 and a `bs256/acc1` baseline on GPU 3, run `bash scripts/launch_jigsaw_baseline_vs_linear05_bs256.sh`.
