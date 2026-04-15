@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -206,6 +207,36 @@ def write_json(path: Path, payload: Any) -> None:
         handle.write("\n")
 
 
+def format_epoch_summary(
+    *,
+    experiment_name: str,
+    epoch: int,
+    total_epochs: int,
+    total_loss: float,
+    task_loss: float,
+    reg_loss: float | None,
+    learning_rate: float,
+    training_time_sec: float,
+    analysis_time_sec: float,
+    reg_enabled: bool,
+    layer_ratios: list[float],
+) -> str:
+    ratios = ", ".join(f"L{i + 1}={value:.4f}" for i, value in enumerate(layer_ratios))
+    reg_text = "n/a" if reg_loss is None else f"{reg_loss:.6f}"
+    return (
+        f"[epoch_summary] experiment={experiment_name} "
+        f"epoch={epoch}/{total_epochs} "
+        f"total_loss={total_loss:.6f} "
+        f"task_loss={task_loss:.6f} "
+        f"reg_loss={reg_text} "
+        f"reg_active={'yes' if reg_enabled else 'no'} "
+        f"lr={learning_rate:.6e} "
+        f"train_sec={training_time_sec:.2f} "
+        f"analysis_sec={analysis_time_sec:.4f} "
+        f"ratios=[{ratios}]"
+    )
+
+
 def train_experiment(
     config: dict[str, Any],
     output_dir: Path,
@@ -306,9 +337,11 @@ def train_experiment(
     total_reg_flops = 0
     total_analysis_flops = 0
 
+    use_tqdm = sys.stdout.isatty()
     progress = tqdm(
         range(1, int(training["max_epochs"]) + 1),
         desc=config.get("experiment_name", "remote-lab-train"),
+        disable=not use_tqdm,
     )
 
     for epoch in progress:
@@ -386,10 +419,31 @@ def train_experiment(
             }
         )
 
-        progress.set_postfix(
-            loss=f"{safe_mean(epoch_total_losses):.4f}",
-            reg="on" if reg_enabled else "off",
-            lr=f"{optimizer.param_groups[0]['lr']:.2e}",
+        avg_total_loss = safe_mean(epoch_total_losses)
+        avg_task_loss = safe_mean(epoch_task_losses)
+        avg_reg_loss = safe_mean(epoch_reg_losses) if epoch_reg_losses else None
+
+        if use_tqdm:
+            progress.set_postfix(
+                loss=f"{avg_total_loss:.4f}",
+                reg="on" if reg_enabled else "off",
+                lr=f"{optimizer.param_groups[0]['lr']:.2e}",
+            )
+        print(
+            format_epoch_summary(
+                experiment_name=config.get("experiment_name", "remote-lab-train"),
+                epoch=epoch,
+                total_epochs=int(training["max_epochs"]),
+                total_loss=avg_total_loss,
+                task_loss=avg_task_loss,
+                reg_loss=avg_reg_loss,
+                learning_rate=float(optimizer.param_groups[0]["lr"]),
+                training_time_sec=epoch_train_time,
+                analysis_time_sec=analysis_time,
+                reg_enabled=reg_enabled,
+                layer_ratios=layer_ratios,
+            ),
+            flush=True,
         )
 
     model.eval()

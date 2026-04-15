@@ -100,6 +100,12 @@ python scripts/tokenize_jigsaw.py \
   --max-length 128
 ```
 
+Or use the helper script:
+
+```bash
+bash scripts/prepare_jigsaw_cache.sh
+```
+
 Check that the experiment config resolves the expected local dataset paths:
 
 ```bash
@@ -113,3 +119,5 @@ python -m remote_lab.cli \
 - Training now expects offline token caches under `data/cache/jigsaw/` and no longer tokenizes raw text inside the training loop.
 - `scripts/setup_venv.sh` installs the package in editable mode, so imports stay consistent on both local and remote machines.
 - The training code still downloads the tokenizer metadata on first use if it is not already cached locally by Hugging Face.
+- In redirected logs, training prints one `[epoch_summary]` line after each epoch so you can monitor loss, regularization, timing, and layerwise ratios with `tail -f`.
+- To launch baseline on GPU 2 and interval-reg on GPU 3 in one command, run `bash scripts/launch_jigsaw_pair.sh` from an activated environment. Override GPUs with `BASELINE_GPU=... INTERVAL_GPU=...`.
