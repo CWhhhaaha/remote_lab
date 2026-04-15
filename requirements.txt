@@ -1,4 +1,5 @@
-# Add runtime dependencies here, one per line.
-# Example:
-# torch
-# transformers
+numpy>=1.26
+torch>=2.2
+transformers>=4.40
+matplotlib>=3.8
+tqdm>=4.66

@@ -8,7 +8,13 @@ version = "0.1.0"
 description = "Experiment workspace for remote training and paper reproduction."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "numpy>=1.26",
+    "torch>=2.2",
+    "transformers>=4.40",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -122,6 +122,17 @@ def main() -> None:
     print("config_contents=")
     print(json.dumps(config, indent=2, sort_keys=True))
 
+    if args.dry_run:
+        return
+
+    from remote_lab.training import train_experiment
+
+    print("training_status=starting")
+    summary = train_experiment(config=config, output_dir=output_dir, project_root=project_root)
+    print("training_status=completed")
+    print("run_summary=")
+    print(json.dumps(summary, indent=2, sort_keys=True))
+
 
 if __name__ == "__main__":
     main()
