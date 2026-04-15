@@ -121,3 +121,4 @@ python -m remote_lab.cli \
 - The training code still downloads the tokenizer metadata on first use if it is not already cached locally by Hugging Face.
 - In redirected logs, training prints one `[epoch_summary]` line after each epoch so you can monitor loss, regularization, timing, and layerwise ratios with `tail -f`.
 - To launch baseline on GPU 2 and interval-reg on GPU 3 in one command, run `bash scripts/launch_jigsaw_pair.sh` from an activated environment. Override GPUs with `BASELINE_GPU=... INTERVAL_GPU=...`.
+- To launch the symmetric-initialization run on GPU 4, run `bash scripts/launch_jigsaw_symm.sh`. Override the GPU with `SYMM_GPU=...`.
