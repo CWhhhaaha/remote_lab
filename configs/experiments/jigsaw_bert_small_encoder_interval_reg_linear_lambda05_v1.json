@@ -1,6 +1,6 @@
 {
-  "experiment_name": "jigsaw-bert-small-encoder-interval-reg-v1",
-  "notes": "4-layer Jigsaw run with manual asymmetry-ratio interval regularization.",
+  "experiment_name": "jigsaw-bert-small-encoder-interval-reg-linear-lambda05-v1",
+  "notes": "4-layer Jigsaw run with manual asymmetry-ratio interval regularization, linear hinge penalty, and lambda 0.5.",
   "seed": 42,
   "dataset": {
     "name": "jigsaw",
@@ -42,8 +42,8 @@
   "regularization": {
     "enabled": true,
     "type": "interval_asymmetry_ratio",
-    "penalty": "squared_hinge",
-    "lambda": 0.3,
+    "penalty": "linear_hinge",
+    "lambda": 0.5,
     "interval_config": "configs/priors/jigsaw_bert_small_encoder_manual_band_v1.json",
     "schedule": [
       {

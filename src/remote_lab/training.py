@@ -112,6 +112,7 @@ def compute_layer_asymmetry_ratios(model: BertForMaskedLM) -> list[float]:
 def compute_reg_loss(
     model: BertForMaskedLM,
     intervals: list[dict[str, float]],
+    penalty: str = "squared_hinge",
 ) -> tuple[torch.Tensor, list[float]]:
     penalties: list[torch.Tensor] = []
     ratios: list[float] = []
@@ -125,7 +126,12 @@ def compute_reg_loss(
         ratio = torch.sum(asym * asym) / denom
         lower = torch.relu(torch.tensor(interval["rho_min"], device=ratio.device) - ratio)
         upper = torch.relu(ratio - torch.tensor(interval["rho_max"], device=ratio.device))
-        penalties.append(lower + upper)
+        if penalty == "linear_hinge":
+            penalties.append(lower + upper)
+        elif penalty == "squared_hinge":
+            penalties.append(lower.square() + upper.square())
+        else:
+            raise ValueError(f"Unsupported regularization penalty: {penalty}")
         ratios.append(float(ratio.detach().item()))
 
     if not penalties:
@@ -314,6 +320,7 @@ def train_experiment(
     intervals = regularization.get("intervals", {}).get("layers", []) if regularization.get("enabled") else []
     reg_schedule = regularization.get("schedule", [])
     lambda_value = float(regularization.get("lambda", 0.0))
+    penalty = str(regularization.get("penalty", "squared_hinge"))
 
     batch_example = next(iter(train_loader))
     batch_example = {key: value.to(device) for key, value in batch_example.items()}
@@ -362,7 +369,7 @@ def train_experiment(
 
             reg_loss_value = 0.0
             if reg_enabled:
-                reg_loss, _ = compute_reg_loss(model, intervals)
+                reg_loss, _ = compute_reg_loss(model, intervals, penalty=penalty)
                 reg_loss_value = float(reg_loss.detach().item())
                 total_loss = total_loss + lambda_value * reg_loss
                 total_reg_flops += reg_flops_per_microbatch

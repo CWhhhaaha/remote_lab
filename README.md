@@ -117,7 +117,7 @@ python -m remote_lab.cli \
 ## Notes
 
 - Training now expects offline token caches under `data/cache/jigsaw/` and no longer tokenizes raw text inside the training loop.
-- The interval regularizer currently uses a linear hinge penalty outside each layer's asymmetry-ratio band, rather than a squared penalty.
+- The interval regularizer is now configurable per experiment via `regularization.penalty`, with `squared_hinge` and `linear_hinge` both supported.
 - `scripts/setup_venv.sh` installs the package in editable mode, so imports stay consistent on both local and remote machines.
 - The training code still downloads the tokenizer metadata on first use if it is not already cached locally by Hugging Face.
 - In redirected logs, training prints one `[epoch_summary]` line after each epoch so you can monitor loss, regularization, timing, and layerwise ratios with `tail -f`.
