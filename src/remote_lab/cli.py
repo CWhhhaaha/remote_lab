@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +28,70 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def load_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def resolve_interval_config(
+    project_root: Path,
+    config: dict[str, Any],
+    config_path: Path,
+) -> dict[str, Any] | None:
+    regularization = config.get("regularization")
+    if not isinstance(regularization, dict):
+        return None
+
+    interval_config = regularization.get("interval_config")
+    if not interval_config:
+        return None
+
+    interval_path = Path(interval_config)
+    if not interval_path.is_absolute():
+        interval_path = (project_root / interval_path).resolve()
+
+    if not interval_path.exists():
+        raise FileNotFoundError(f"Interval config not found: {interval_path}")
+
+    interval_data = load_json(interval_path)
+    config["regularization"]["resolved_interval_config"] = str(interval_path)
+    config["regularization"]["intervals"] = interval_data
+    return interval_data
+
+
+def summarize_interval_config(interval_data: dict[str, Any]) -> dict[str, Any]:
+    layers = interval_data.get("layers", [])
+    widths = [layer["rho_max"] - layer["rho_min"] for layer in layers]
+    centers = [(layer["rho_max"] + layer["rho_min"]) / 2.0 for layer in layers]
+    return {
+        "name": interval_data.get("name"),
+        "metric": interval_data.get("metric"),
+        "num_layers": len(layers),
+        "centers": [round(value, 6) for value in centers],
+        "widths": [round(value, 6) for value in widths],
+        "layers": layers,
+    }
+
+
+def resolve_dataset_paths(project_root: Path, config: dict[str, Any]) -> dict[str, str] | None:
+    dataset = config.get("dataset")
+    if not isinstance(dataset, dict):
+        return None
+
+    resolved: dict[str, str] = {}
+    for key, value in dataset.items():
+        if isinstance(value, str) and (
+            value.startswith("data/")
+            or value.startswith("./data/")
+            or value == "data"
+        ):
+            resolved[key] = str((project_root / value).resolve())
+
+    if resolved:
+        config["dataset"]["resolved_paths"] = resolved
+    return resolved or None
+
+
 def main() -> None:
     args = build_parser().parse_args()
     project_root = Path(__file__).resolve().parents[2]
@@ -36,8 +101,9 @@ def main() -> None:
     if not config_path.exists():
         raise FileNotFoundError(f"Config not found: {config_path}")
 
-    with config_path.open("r", encoding="utf-8") as handle:
-        config = json.load(handle)
+    config = load_json(config_path)
+    interval_data = resolve_interval_config(project_root, config, config_path)
+    dataset_paths = resolve_dataset_paths(project_root, config)
 
     if not args.dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -47,6 +113,12 @@ def main() -> None:
     print(f"config={config_path}")
     print(f"output_dir={output_dir}")
     print(f"dry_run={args.dry_run}")
+    if dataset_paths is not None:
+        print("dataset_paths=")
+        print(json.dumps(dataset_paths, indent=2, sort_keys=True))
+    if interval_data is not None:
+        print("interval_summary=")
+        print(json.dumps(summarize_interval_config(interval_data), indent=2, sort_keys=True))
     print("config_contents=")
     print(json.dumps(config, indent=2, sort_keys=True))
 

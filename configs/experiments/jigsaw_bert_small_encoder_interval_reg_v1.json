@@ -1,0 +1,68 @@
+{
+  "experiment_name": "jigsaw-bert-small-encoder-interval-reg-v1",
+  "notes": "4-layer Jigsaw run with manual asymmetry-ratio interval regularization.",
+  "seed": 42,
+  "dataset": {
+    "name": "jigsaw",
+    "task": "masked_language_modeling",
+    "estimated_train_samples": 159571,
+    "data_root": "data",
+    "raw_archive": "data/raw/jigsaw/jigsaw-toxic-comment-classification-challenge.zip",
+    "prepared_train_file": "data/processed/train/jigsaw.json.gz",
+    "prepared_test_file": "data/processed/test/jigsaw.json.gz",
+    "cache_dir": "data/cache"
+  },
+  "model": {
+    "family": "bert",
+    "variant": "bert_small",
+    "mode": "encoder",
+    "num_hidden_layers": 4,
+    "hidden_size": 256,
+    "intermediate_size": 1024,
+    "num_attention_heads": 4
+  },
+  "initialization": {
+    "query_key": "standard"
+  },
+  "training": {
+    "max_epochs": 200,
+    "steps_per_epoch_estimate": 623.324219,
+    "estimated_total_steps": 124665,
+    "per_device_batch_size": 32,
+    "gradient_accumulation_steps": 8,
+    "effective_batch_size": 256,
+    "learning_rate": 5e-05,
+    "warmup_steps": 200,
+    "weight_decay": 0.01,
+    "mlm_probability": 0.15
+  },
+  "regularization": {
+    "enabled": true,
+    "type": "interval_asymmetry_ratio",
+    "lambda": 0.3,
+    "interval_config": "configs/priors/jigsaw_bert_small_encoder_manual_band_v1.json",
+    "schedule": [
+      {
+        "epoch_start": 1,
+        "epoch_end": 50,
+        "every_n_epochs": 5
+      },
+      {
+        "epoch_start": 51,
+        "epoch_end": 100,
+        "every_n_epochs": 10
+      },
+      {
+        "epoch_start": 101,
+        "epoch_end": 200,
+        "every_n_epochs": 20
+      }
+    ]
+  },
+  "instrumentation": {
+    "measure_training_time": true,
+    "measure_flops": true,
+    "exclude_analysis_time": true,
+    "exclude_analysis_flops": true
+  }
+}

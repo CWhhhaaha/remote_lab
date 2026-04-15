@@ -1,0 +1,27 @@
+{
+  "name": "jigsaw_bert_small_encoder_manual_band_v1",
+  "source": "user-defined manual interval band",
+  "metric": "asymmetry_ratio",
+  "layers": [
+    {
+      "layer": 1,
+      "rho_min": 0.3,
+      "rho_max": 0.4
+    },
+    {
+      "layer": 2,
+      "rho_min": 0.15,
+      "rho_max": 0.25
+    },
+    {
+      "layer": 3,
+      "rho_min": 0.05,
+      "rho_max": 0.15
+    },
+    {
+      "layer": 4,
+      "rho_min": 0.15,
+      "rho_max": 0.25
+    }
+  ]
+}

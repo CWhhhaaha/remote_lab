@@ -14,6 +14,7 @@ Private manuscript sources stay local and are excluded from version control.
 - `src/remote_lab/`: Python package and experiment entrypoints
 - `configs/`: committed experiment configs
 - `scripts/`: setup and run helpers for local or remote machines
+- `data/`: local-only raw and prepared datasets for training
 - `runs/`, `logs/`, `results/`: generated outputs kept out of git
 
 ## Local workflow
@@ -36,6 +37,58 @@ git pull
 bash scripts/setup_venv.sh
 source .venv/bin/activate
 bash scripts/run_experiment.sh --config configs/base.json --output-dir runs/first_run
+```
+
+## Data workflow
+
+The repository expects datasets to live under a local-only `data/` tree that is ignored by git.
+
+Recommended layout:
+
+```bash
+data/
+  raw/
+    jigsaw/
+      jigsaw-toxic-comment-classification-challenge.zip
+  processed/
+    train/
+      jigsaw.json.gz
+    test/
+      jigsaw.json.gz
+  cache/
+```
+
+Prepare the directory tree:
+
+```bash
+bash scripts/setup_data_dirs.sh
+```
+
+On the remote machine, download the Kaggle Jigsaw archive into `data/raw/jigsaw`:
+
+```bash
+source .venv/bin/activate
+python -m pip install kaggle
+bash scripts/download_jigsaw_kaggle.sh
+```
+
+This requires a working Kaggle credential setup on the remote machine.
+
+Convert the raw archive into the prepared train/test files expected by the experiment config:
+
+```bash
+python scripts/prepare_jigsaw_data.py \
+  --archive data/raw/jigsaw/jigsaw-toxic-comment-classification-challenge.zip \
+  --train-output data/processed/train/jigsaw.json.gz \
+  --test-output data/processed/test/jigsaw.json.gz
+```
+
+Check that the experiment config resolves the expected local dataset paths:
+
+```bash
+python -m remote_lab.cli \
+  --config configs/experiments/jigsaw_bert_small_encoder_manual_band_v1.json \
+  --dry-run
 ```
 
 ## Notes
