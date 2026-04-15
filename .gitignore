@@ -1,0 +1,41 @@
+# Private manuscript files
+neurips_*.tex
+neurips_*.sty
+neurips_wqk_geometry_draft.tex
+neurips_wqk_geometry_draft.pdf
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+
+# Python environment
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Experiment outputs
+data/
+datasets/
+outputs/
+results/
+runs/
+checkpoints/
+wandb/
+
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
