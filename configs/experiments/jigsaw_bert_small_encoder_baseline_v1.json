@@ -7,9 +7,10 @@
     "task": "masked_language_modeling",
     "estimated_train_samples": 159571,
     "data_root": "data",
-    "raw_archive": "data/raw/jigsaw/jigsaw-toxic-comment-classification-challenge.zip",
     "prepared_train_file": "data/processed/train/jigsaw.json.gz",
     "prepared_test_file": "data/processed/test/jigsaw.json.gz",
+    "tokenized_train_file": "data/cache/jigsaw/train_tokens.pt",
+    "tokenized_test_file": "data/cache/jigsaw/test_tokens.pt",
     "cache_dir": "data/cache"
   },
   "model": {
@@ -34,7 +35,9 @@
     "learning_rate": 5e-05,
     "warmup_steps": 200,
     "weight_decay": 0.01,
-    "mlm_probability": 0.15
+    "mlm_probability": 0.15,
+    "max_seq_length": 128,
+    "num_workers": 2
   },
   "regularization": {
     "enabled": false,

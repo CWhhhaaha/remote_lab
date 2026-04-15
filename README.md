@@ -59,6 +59,9 @@ data/
     test/
       jigsaw.json.gz
   cache/
+    jigsaw/
+      train_tokens.pt
+      test_tokens.pt
 ```
 
 Prepare the directory tree:
@@ -86,6 +89,17 @@ python scripts/prepare_jigsaw_data.py \
   --test-output data/processed/test/jigsaw.json.gz
 ```
 
+Then create the offline token caches used by training:
+
+```bash
+python scripts/tokenize_jigsaw.py \
+  --train-input data/processed/train/jigsaw.json.gz \
+  --test-input data/processed/test/jigsaw.json.gz \
+  --train-output data/cache/jigsaw/train_tokens.pt \
+  --test-output data/cache/jigsaw/test_tokens.pt \
+  --max-length 128
+```
+
 Check that the experiment config resolves the expected local dataset paths:
 
 ```bash
@@ -96,6 +110,6 @@ python -m remote_lab.cli \
 
 ## Notes
 
-- `requirements.txt` is intentionally minimal right now. Add runtime dependencies there as the experiments become concrete.
+- Training now expects offline token caches under `data/cache/jigsaw/` and no longer tokenizes raw text inside the training loop.
 - `scripts/setup_venv.sh` installs the package in editable mode, so imports stay consistent on both local and remote machines.
-- The current CLI is a bootstrap entrypoint to verify that the environment, config path, and output directory wiring all work before the real training code is added.
+- The training code still downloads the tokenizer metadata on first use if it is not already cached locally by Hugging Face.

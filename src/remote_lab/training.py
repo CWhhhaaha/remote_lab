@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gzip
 import json
 import math
 import os
@@ -17,8 +16,8 @@ from tqdm.auto import tqdm
 from transformers import (
     BertConfig,
     BertForMaskedLM,
-    BertTokenizerFast,
     DataCollatorForLanguageModeling,
+    BertTokenizerFast,
 )
 
 
@@ -35,41 +34,32 @@ def maybe_sync(device: torch.device) -> None:
         torch.cuda.synchronize(device)
 
 
-def load_json_gz(path: Path) -> dict[str, Any]:
-    with gzip.open(path, "rt", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-class TextDataset(Dataset):
-    def __init__(self, texts: list[str], tokenizer: BertTokenizerFast, max_length: int) -> None:
-        self.texts = texts
-        self.tokenizer = tokenizer
-        self.max_length = max_length
+class TokenizedDataset(Dataset):
+    def __init__(self, examples: list[dict[str, list[int]]]) -> None:
+        self.examples = examples
 
     def __len__(self) -> int:
-        return len(self.texts)
+        return len(self.examples)
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        text = self.texts[index]
-        return self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.max_length,
-            return_special_tokens_mask=True,
-        )
-
-
-def read_texts(path: Path, split: str) -> list[str]:
-    payload = load_json_gz(path)
-    key = f"{split}_samples"
-    rows = payload.get(key)
-    if not isinstance(rows, list):
-        raise ValueError(f"Expected list under {key} in {path}")
-    return [row["text"] for row in rows if isinstance(row, dict) and row.get("text")]
+    def __getitem__(self, index: int) -> dict[str, list[int]]:
+        return self.examples[index]
 
 
 def build_tokenizer() -> BertTokenizerFast:
     return BertTokenizerFast.from_pretrained("bert-base-uncased")
+
+
+def load_tokenized_cache(path: Path) -> dict[str, Any]:
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        payload = torch.load(path, map_location="cpu")
+    if not isinstance(payload, dict):
+        raise TypeError(f"Expected dict cache at {path}, got {type(payload)!r}")
+    examples = payload.get("examples")
+    if not isinstance(examples, list):
+        raise ValueError(f"Expected examples list in tokenized cache: {path}")
+    return payload
 
 
 def build_model(model_config: dict[str, Any], tokenizer: BertTokenizerFast) -> BertForMaskedLM:
@@ -169,7 +159,7 @@ def resolve_max_length(training_config: dict[str, Any]) -> int:
 
 
 def resolve_num_workers(training_config: dict[str, Any]) -> int:
-    return int(training_config.get("num_workers", 0))
+    return int(training_config.get("num_workers", 2))
 
 
 def safe_mean(values: list[float]) -> float:
@@ -236,16 +226,14 @@ def train_experiment(
         apply_symmetric_query_key_initialization(model)
     model.to(device)
 
-    train_path = Path(dataset_config["resolved_paths"]["prepared_train_file"])
-    test_path = Path(dataset_config["resolved_paths"]["prepared_test_file"])
-    max_length = resolve_max_length(training)
+    train_cache_path = Path(dataset_config["resolved_paths"]["tokenized_train_file"])
+    test_cache_path = Path(dataset_config["resolved_paths"]["tokenized_test_file"])
     num_workers = resolve_num_workers(training)
 
-    train_texts = read_texts(train_path, "train")
-    test_texts = read_texts(test_path, "test")
-
-    train_dataset = TextDataset(train_texts, tokenizer, max_length=max_length)
-    test_dataset = TextDataset(test_texts, tokenizer, max_length=max_length)
+    train_cache = load_tokenized_cache(train_cache_path)
+    test_cache = load_tokenized_cache(test_cache_path)
+    train_dataset = TokenizedDataset(train_cache["examples"])
+    test_dataset = TokenizedDataset(test_cache["examples"])
     collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=True,
@@ -262,6 +250,7 @@ def train_experiment(
         num_workers=num_workers,
         pin_memory=device.type == "cuda",
         collate_fn=collator,
+        persistent_workers=num_workers > 0,
     )
     test_loader = DataLoader(
         test_dataset,
@@ -270,6 +259,7 @@ def train_experiment(
         num_workers=num_workers,
         pin_memory=device.type == "cuda",
         collate_fn=collator,
+        persistent_workers=num_workers > 0,
     )
 
     optimizer = torch.optim.AdamW(
@@ -421,6 +411,8 @@ def train_experiment(
         "experiment_name": config.get("experiment_name"),
         "device": str(device),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "tokenized_train_cache": str(train_cache_path),
+        "tokenized_test_cache": str(test_cache_path),
         "epochs": int(training["max_epochs"]),
         "global_microbatches": global_microbatches,
         "global_optimizer_steps": global_optimizer_steps,
