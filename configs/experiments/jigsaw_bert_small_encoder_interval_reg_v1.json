@@ -42,7 +42,7 @@
   "regularization": {
     "enabled": true,
     "type": "interval_asymmetry_ratio",
-    "lambda": 0.3,
+    "lambda": 0.5,
     "interval_config": "configs/priors/jigsaw_bert_small_encoder_manual_band_v1.json",
     "schedule": [
       {
