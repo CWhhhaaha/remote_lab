@@ -23,13 +23,13 @@ LABEL_NAMES = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert the Kaggle Jigsaw archive into train/test json.gz files."
+        description="Convert Kaggle Jigsaw csv.zip files into train/test json.gz files."
     )
     parser.add_argument(
-        "--archive",
+        "--raw-dir",
         type=Path,
         required=True,
-        help="Path to jigsaw-toxic-comment-classification-challenge.zip",
+        help="Directory containing train.csv.zip, test.csv.zip, and test_labels.csv.zip.",
     )
     parser.add_argument(
         "--train-output",
@@ -46,9 +46,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_nested_csv(archive: zipfile.ZipFile, stem: str) -> list[dict[str, str]]:
-    with zipfile.ZipFile(archive.open(f"{stem}.csv.zip")) as nested_zip:
-        with io.TextIOWrapper(nested_zip.open(f"{stem}.csv", "r"), encoding="utf-8") as handle:
+def read_zipped_csv(zip_path: Path, csv_name: str) -> list[dict[str, str]]:
+    with zipfile.ZipFile(zip_path, mode="r") as archive:
+        with io.TextIOWrapper(archive.open(csv_name, "r"), encoding="utf-8") as handle:
             return list(csv.DictReader(handle))
 
 
@@ -105,11 +105,18 @@ def write_json_gz(path: Path, payload: dict) -> None:
 
 def main() -> None:
     args = parse_args()
+    required_files = {
+        "train": args.raw_dir / "train.csv.zip",
+        "test": args.raw_dir / "test.csv.zip",
+        "test_labels": args.raw_dir / "test_labels.csv.zip",
+    }
+    for name, path in required_files.items():
+        if not path.exists():
+            raise FileNotFoundError(f"Missing required Jigsaw file for {name}: {path}")
 
-    with zipfile.ZipFile(args.archive, mode="r") as archive:
-        train_rows = read_nested_csv(archive, "train")
-        test_rows = read_nested_csv(archive, "test")
-        test_label_rows = read_nested_csv(archive, "test_labels")
+    train_rows = read_zipped_csv(required_files["train"], "train.csv")
+    test_rows = read_zipped_csv(required_files["test"], "test.csv")
+    test_label_rows = read_zipped_csv(required_files["test_labels"], "test_labels.csv")
 
     train_payload = build_train_dataset(train_rows)
     test_payload = build_test_dataset(test_rows, test_label_rows)

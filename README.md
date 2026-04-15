@@ -49,7 +49,10 @@ Recommended layout:
 data/
   raw/
     jigsaw/
-      jigsaw-toxic-comment-classification-challenge.zip
+      train.csv.zip
+      test.csv.zip
+      test_labels.csv.zip
+      sample_submission.csv.zip
   processed/
     train/
       jigsaw.json.gz
@@ -64,7 +67,7 @@ Prepare the directory tree:
 bash scripts/setup_data_dirs.sh
 ```
 
-On the remote machine, download the Kaggle Jigsaw archive into `data/raw/jigsaw`:
+On the remote machine, download the Kaggle Jigsaw csv.zip files into `data/raw/jigsaw`:
 
 ```bash
 source .venv/bin/activate
@@ -78,7 +81,7 @@ Convert the raw archive into the prepared train/test files expected by the exper
 
 ```bash
 python scripts/prepare_jigsaw_data.py \
-  --archive data/raw/jigsaw/jigsaw-toxic-comment-classification-challenge.zip \
+  --raw-dir data/raw/jigsaw \
   --train-output data/processed/train/jigsaw.json.gz \
   --test-output data/processed/test/jigsaw.json.gz
 ```
@@ -87,7 +90,7 @@ Check that the experiment config resolves the expected local dataset paths:
 
 ```bash
 python -m remote_lab.cli \
-  --config configs/experiments/jigsaw_bert_small_encoder_manual_band_v1.json \
+  --config configs/experiments/jigsaw_bert_small_encoder_baseline_v1.json \
   --dry-run
 ```
 
