@@ -25,6 +25,8 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.python-version
+*.egg-info/
 
 # Experiment outputs
 data/
@@ -34,6 +36,7 @@ results/
 runs/
 checkpoints/
 wandb/
+logs/
 
 # OS / editor files
 .DS_Store
