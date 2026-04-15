@@ -125,7 +125,7 @@ def compute_reg_loss(
         ratio = torch.sum(asym * asym) / denom
         lower = torch.relu(torch.tensor(interval["rho_min"], device=ratio.device) - ratio)
         upper = torch.relu(ratio - torch.tensor(interval["rho_max"], device=ratio.device))
-        penalties.append(lower.square() + upper.square())
+        penalties.append(lower + upper)
         ratios.append(float(ratio.detach().item()))
 
     if not penalties:
