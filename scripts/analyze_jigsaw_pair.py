@@ -76,6 +76,7 @@ def summarize_run(run: dict[str, Any]) -> dict[str, Any]:
         "analysis_flops": metrics.get("analysis_flops"),
         "final_layer_ratios": final_epoch.get("layer_asymmetry_ratio"),
         "regularization_epochs": sum(1 for row in epoch_metrics if row.get("regularization_active")),
+        "final_epoch_eval_loss": final_epoch.get("eval_loss"),
     }
 
 
@@ -101,6 +102,7 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- reported_training_time_sec: `{baseline['reported_training_time_sec']}`",
         f"- reported_training_flops: `{baseline['reported_training_flops']}`",
         f"- final_layer_ratios: `{baseline['final_layer_ratios']}`",
+        f"- final_epoch_eval_loss: `{baseline['final_epoch_eval_loss']}`",
         "",
         "## Interval",
         f"- run_dir: `{interval['run_dir']}`",
@@ -109,6 +111,7 @@ def write_markdown(path: Path, payload: dict[str, Any]) -> None:
         f"- reported_training_time_sec: `{interval['reported_training_time_sec']}`",
         f"- reported_training_flops: `{interval['reported_training_flops']}`",
         f"- final_layer_ratios: `{interval['final_layer_ratios']}`",
+        f"- final_epoch_eval_loss: `{interval['final_epoch_eval_loss']}`",
         f"- regularization_epochs: `{interval['regularization_epochs']}`",
         "",
         "## Delta (Interval - Baseline)",
@@ -174,6 +177,40 @@ def plot_time_curves(
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Seconds")
     ax.set_title(f"{title_prefix}: Time by Epoch")
+    ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.4)
+    ax.legend()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_eval_curves(
+    baseline_epochs: list[dict[str, Any]],
+    interval_epochs: list[dict[str, Any]],
+    output_path: Path,
+    title_prefix: str,
+) -> None:
+    baseline_points = [(row["epoch"], row["eval_loss"]) for row in baseline_epochs if row.get("eval_loss") is not None]
+    interval_points = [(row["epoch"], row["eval_loss"]) for row in interval_epochs if row.get("eval_loss") is not None]
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=180)
+    if baseline_points:
+        ax.plot(
+            [epoch for epoch, _ in baseline_points],
+            [loss for _, loss in baseline_points],
+            label="Baseline eval loss",
+            linewidth=2.0,
+        )
+    if interval_points:
+        ax.plot(
+            [epoch for epoch, _ in interval_points],
+            [loss for _, loss in interval_points],
+            label="Interval eval loss",
+            linewidth=2.0,
+        )
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Eval loss")
+    ax.set_title(f"{title_prefix}: Eval Loss by Epoch")
     ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.4)
     ax.legend()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -271,6 +308,12 @@ def main() -> None:
         args.output_dir / "time_by_epoch.png",
         args.title_prefix,
     )
+    plot_eval_curves(
+        baseline_run["epoch_metrics"],
+        interval_run["epoch_metrics"],
+        args.output_dir / "eval_loss_by_epoch.png",
+        args.title_prefix,
+    )
     plot_ratio_curves(
         baseline_run["ratio_history"],
         interval_run["ratio_history"],
@@ -283,6 +326,7 @@ def main() -> None:
     print(f"summary_md={(args.output_dir / 'summary.md').resolve()}")
     print(f"loss_plot={(args.output_dir / 'loss_by_epoch.png').resolve()}")
     print(f"time_plot={(args.output_dir / 'time_by_epoch.png').resolve()}")
+    print(f"eval_plot={(args.output_dir / 'eval_loss_by_epoch.png').resolve()}")
     print(f"ratio_plot={(args.output_dir / 'ratio_by_epoch.png').resolve()}")
 
 

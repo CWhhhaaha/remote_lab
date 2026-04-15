@@ -37,7 +37,8 @@
     "weight_decay": 0.01,
     "mlm_probability": 0.15,
     "max_seq_length": 128,
-    "num_workers": 2
+    "num_workers": 2,
+    "eval_every_epochs": 1
   },
   "regularization": {
     "enabled": false,

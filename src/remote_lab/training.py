@@ -223,6 +223,8 @@ def format_epoch_summary(
     reg_loss: float | None,
     learning_rate: float,
     training_time_sec: float,
+    eval_time_sec: float | None,
+    eval_loss: float | None,
     analysis_time_sec: float,
     reg_enabled: bool,
     layer_ratios: list[float],
@@ -238,9 +240,30 @@ def format_epoch_summary(
         f"reg_active={'yes' if reg_enabled else 'no'} "
         f"lr={learning_rate:.6e} "
         f"train_sec={training_time_sec:.2f} "
+        f"eval_sec={'n/a' if eval_time_sec is None else f'{eval_time_sec:.2f}'} "
+        f"eval_loss={'n/a' if eval_loss is None else f'{eval_loss:.6f}'} "
         f"analysis_sec={analysis_time_sec:.4f} "
         f"ratios=[{ratios}]"
     )
+
+
+def evaluate_model(
+    model: BertForMaskedLM,
+    dataloader: DataLoader,
+    device: torch.device,
+) -> tuple[float | None, float]:
+    losses: list[float] = []
+    model.eval()
+    maybe_sync(device)
+    start = time.perf_counter()
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
+            outputs = model(**batch)
+            losses.append(float(outputs.loss.item()))
+    maybe_sync(device)
+    duration = time.perf_counter() - start
+    return (safe_mean(losses) if losses else None), duration
 
 
 def train_experiment(
@@ -317,6 +340,7 @@ def train_experiment(
     run_paths = prepare_run_paths(output_dir)
 
     warmup_steps = int(training.get("warmup_steps", 0))
+    eval_every_epochs = int(training.get("eval_every_epochs", 1))
     intervals = regularization.get("intervals", {}).get("layers", []) if regularization.get("enabled") else []
     reg_schedule = regularization.get("schedule", [])
     lambda_value = float(regularization.get("lambda", 0.0))
@@ -357,6 +381,8 @@ def train_experiment(
         epoch_task_losses: list[float] = []
         epoch_reg_losses: list[float] = []
         reg_enabled = bool(regularization.get("enabled")) and regularization_active(epoch, reg_schedule)
+        eval_loss: float | None = None
+        eval_time_sec: float | None = None
 
         maybe_sync(device)
         epoch_train_start = time.perf_counter()
@@ -405,6 +431,11 @@ def train_experiment(
         total_analysis_time += analysis_time
         total_analysis_flops += analysis_flops_per_epoch
 
+        if eval_every_epochs > 0 and epoch % eval_every_epochs == 0:
+            eval_loss, eval_duration = evaluate_model(model, test_loader, device)
+            total_eval_time += eval_duration
+            eval_time_sec = eval_duration
+
         ratio_history.append(
             {
                 "epoch": epoch,
@@ -420,6 +451,8 @@ def train_experiment(
                 "avg_total_loss": round(safe_mean(epoch_total_losses), 8),
                 "avg_reg_loss": round(safe_mean(epoch_reg_losses), 8) if epoch_reg_losses else None,
                 "training_time_sec": round(epoch_train_time, 6),
+                "evaluation_time_sec": round(eval_time_sec, 6) if eval_time_sec is not None else None,
+                "eval_loss": round(eval_loss, 8) if eval_loss is not None else None,
                 "analysis_time_sec": round(analysis_time, 6),
                 "learning_rate": optimizer.param_groups[0]["lr"],
                 "layer_asymmetry_ratio": [round(value, 8) for value in layer_ratios],
@@ -446,6 +479,8 @@ def train_experiment(
                 reg_loss=avg_reg_loss,
                 learning_rate=float(optimizer.param_groups[0]["lr"]),
                 training_time_sec=epoch_train_time,
+                eval_time_sec=eval_time_sec,
+                eval_loss=eval_loss,
                 analysis_time_sec=analysis_time,
                 reg_enabled=reg_enabled,
                 layer_ratios=layer_ratios,
@@ -453,17 +488,13 @@ def train_experiment(
             flush=True,
         )
 
-    model.eval()
-    eval_losses: list[float] = []
-    maybe_sync(device)
-    eval_start = time.perf_counter()
-    with torch.no_grad():
-        for batch in test_loader:
-            batch = {key: value.to(device, non_blocking=True) for key, value in batch.items()}
-            outputs = model(**batch)
-            eval_losses.append(float(outputs.loss.item()))
-    maybe_sync(device)
-    total_eval_time = time.perf_counter() - eval_start
+    final_eval_loss = next(
+        (row["eval_loss"] for row in reversed(epoch_metrics) if row.get("eval_loss") is not None),
+        None,
+    )
+    if final_eval_loss is None:
+        final_eval_loss, eval_duration = evaluate_model(model, test_loader, device)
+        total_eval_time += eval_duration
 
     model.save_pretrained(run_paths.model_dir)
     tokenizer.save_pretrained(run_paths.model_dir)
@@ -478,7 +509,7 @@ def train_experiment(
         "global_microbatches": global_microbatches,
         "global_optimizer_steps": global_optimizer_steps,
         "final_train_loss": epoch_metrics[-1]["avg_total_loss"] if epoch_metrics else None,
-        "final_eval_loss": round(safe_mean(eval_losses), 8) if eval_losses else None,
+        "final_eval_loss": round(float(final_eval_loss), 8) if final_eval_loss is not None else None,
         "training_time_sec": round(total_training_time, 6),
         "evaluation_time_sec": round(total_eval_time, 6),
         "analysis_time_sec": round(total_analysis_time, 6),
