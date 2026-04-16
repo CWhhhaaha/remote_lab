@@ -1,0 +1,37 @@
+{
+  "name": "cifar10_vit6_manual_band_smoke_custom_v1",
+  "source": "user-defined smoke interval band",
+  "metric": "asymmetry_ratio",
+  "layers": [
+    {
+      "layer": 1,
+      "rho_min": 0.2,
+      "rho_max": 0.25
+    },
+    {
+      "layer": 2,
+      "rho_min": 0.25,
+      "rho_max": 0.3
+    },
+    {
+      "layer": 3,
+      "rho_min": 0.3,
+      "rho_max": 0.35
+    },
+    {
+      "layer": 4,
+      "rho_min": 0.35,
+      "rho_max": 0.4
+    },
+    {
+      "layer": 5,
+      "rho_min": 0.45,
+      "rho_max": 0.55
+    },
+    {
+      "layer": 6,
+      "rho_min": 0.6,
+      "rho_max": 0.7
+    }
+  ]
+}

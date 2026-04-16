@@ -46,7 +46,7 @@
     "type": "interval_asymmetry_ratio",
     "penalty": "linear_hinge",
     "lambda": 0.5,
-    "interval_config": "configs/priors/cifar10_vit6_manual_band_v1.json",
+    "interval_config": "configs/priors/cifar10_vit6_manual_band_smoke_custom_v1.json",
     "schedule": [
       {
         "epoch_start": 1,
