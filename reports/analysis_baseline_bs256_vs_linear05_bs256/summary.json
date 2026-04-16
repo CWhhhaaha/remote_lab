@@ -1,0 +1,58 @@
+{
+  "baseline": {
+    "run_dir": "/data/chenwei/remote_lab/runs/jigsaw_baseline_bs256_gpu3",
+    "experiment_name": "jigsaw-bert-small-encoder-baseline-bs256-acc1-eval1-v1",
+    "epochs": 200,
+    "final_train_loss": 2.99091894,
+    "final_eval_loss": 3.0412756,
+    "reported_training_time_sec": 21139.248926192522,
+    "training_time_sec": 21139.248926,
+    "analysis_time_sec": 0.177934,
+    "reported_training_flops": 0,
+    "task_flops": 0,
+    "reg_flops": 0,
+    "analysis_flops": 27262976000,
+    "final_layer_ratios": [
+      0.39280459,
+      0.10323305,
+      0.05147457,
+      0.17743714
+    ],
+    "regularization_epochs": 0,
+    "final_epoch_eval_loss": 3.0412756
+  },
+  "interval": {
+    "run_dir": "/data/chenwei/remote_lab/runs/jigsaw_interval_linear_lambda05_bs256_gpu2",
+    "experiment_name": "jigsaw-bert-small-encoder-interval-reg-linear-lambda05-bs256-acc1-eval1-v1",
+    "epochs": 200,
+    "final_train_loss": 2.99183592,
+    "final_eval_loss": 3.04915619,
+    "reported_training_time_sec": 21106.709602693096,
+    "training_time_sec": 21106.709603,
+    "analysis_time_sec": 0.176693,
+    "reported_training_flops": 1701209702400,
+    "task_flops": 0,
+    "reg_flops": 1701209702400,
+    "analysis_flops": 27262976000,
+    "final_layer_ratios": [
+      0.35662538,
+      0.14917111,
+      0.08363549,
+      0.16557328
+    ],
+    "regularization_epochs": 20,
+    "final_epoch_eval_loss": 3.04915619
+  },
+  "delta": {
+    "final_train_loss_delta": 0.00091698,
+    "final_eval_loss_delta": 0.00788059,
+    "reported_training_time_sec_delta": -32.5393235,
+    "reported_training_flops_delta": 1701209702400.0,
+    "final_layer_ratio_delta": [
+      -0.03617921,
+      0.04593806,
+      0.03216092,
+      -0.01186386
+    ]
+  }
+}
