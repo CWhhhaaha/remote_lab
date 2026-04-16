@@ -50,7 +50,7 @@
     "schedule": [
       {
         "epoch_start": 1,
-        "epoch_end": 500,
+        "epoch_end": 30,
         "every_n_epochs": 1
       }
     ]
