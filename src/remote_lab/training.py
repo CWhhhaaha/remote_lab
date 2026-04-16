@@ -247,6 +247,24 @@ def format_epoch_summary(
     )
 
 
+def format_init_summary(
+    *,
+    experiment_name: str,
+    total_epochs: int,
+    learning_rate: float,
+    analysis_time_sec: float,
+    layer_ratios: list[float],
+) -> str:
+    ratios = ", ".join(f"L{i + 1}={value:.4f}" for i, value in enumerate(layer_ratios))
+    return (
+        f"[init_summary] experiment={experiment_name} "
+        f"epoch=0/{total_epochs} "
+        f"lr={learning_rate:.6e} "
+        f"analysis_sec={analysis_time_sec:.4f} "
+        f"ratios=[{ratios}]"
+    )
+
+
 def evaluate_model(
     model: BertForMaskedLM,
     dataloader: DataLoader,
@@ -367,6 +385,46 @@ def train_experiment(
     total_task_flops = 0
     total_reg_flops = 0
     total_analysis_flops = 0
+
+    maybe_sync(device)
+    init_analysis_start = time.perf_counter()
+    initial_layer_ratios = compute_layer_asymmetry_ratios(model)
+    maybe_sync(device)
+    init_analysis_time = time.perf_counter() - init_analysis_start
+    total_analysis_time += init_analysis_time
+    total_analysis_flops += analysis_flops_per_epoch
+
+    ratio_history.append(
+        {
+            "epoch": 0,
+            "layer_asymmetry_ratio": [round(value, 8) for value in initial_layer_ratios],
+        }
+    )
+    epoch_metrics.append(
+        {
+            "epoch": 0,
+            "regularization_active": False,
+            "avg_task_loss": None,
+            "avg_total_loss": None,
+            "avg_reg_loss": None,
+            "training_time_sec": 0.0,
+            "evaluation_time_sec": None,
+            "eval_loss": None,
+            "analysis_time_sec": round(init_analysis_time, 6),
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "layer_asymmetry_ratio": [round(value, 8) for value in initial_layer_ratios],
+        }
+    )
+    print(
+        format_init_summary(
+            experiment_name=config.get("experiment_name", "remote-lab-train"),
+            total_epochs=int(training["max_epochs"]),
+            learning_rate=float(optimizer.param_groups[0]["lr"]),
+            analysis_time_sec=init_analysis_time,
+            layer_ratios=initial_layer_ratios,
+        ),
+        flush=True,
+    )
 
     use_tqdm = sys.stdout.isatty()
     progress = tqdm(

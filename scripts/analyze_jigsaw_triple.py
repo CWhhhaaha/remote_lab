@@ -42,6 +42,14 @@ EPOCH_SUMMARY_RE = re.compile(
     r"ratios=\[(?P<ratios>.+)\]"
 )
 
+INIT_SUMMARY_RE = re.compile(
+    r"\[init_summary\]\s+experiment=(?P<experiment>\S+)\s+"
+    r"epoch=0/(?P<total_epochs>\d+)\s+"
+    r"lr=(?P<lr>\S+)\s+"
+    r"analysis_sec=(?P<analysis_sec>\S+)\s+"
+    r"ratios=\[(?P<ratios>.+)\]"
+)
+
 
 def parse_optional_float(value: str | None) -> float | None:
     if value in (None, "n/a"):
@@ -68,6 +76,34 @@ def load_run_from_log(run_dir: Path) -> dict[str, Any]:
     total_epochs: int | None = None
 
     for line in train_log.read_text(encoding="utf-8", errors="ignore").splitlines():
+        init_match = INIT_SUMMARY_RE.search(line)
+        if init_match is not None:
+            experiment_name = init_match.group("experiment")
+            total_epochs = int(init_match.group("total_epochs"))
+            layer_ratios = [round(value, 8) for value in parse_ratios(init_match.group("ratios"))]
+            epoch_metrics.append(
+                {
+                    "epoch": 0,
+                    "regularization_active": False,
+                    "avg_task_loss": None,
+                    "avg_total_loss": None,
+                    "avg_reg_loss": None,
+                    "training_time_sec": 0.0,
+                    "evaluation_time_sec": None,
+                    "eval_loss": None,
+                    "analysis_time_sec": round(float(init_match.group("analysis_sec")), 6),
+                    "learning_rate": float(init_match.group("lr")),
+                    "layer_asymmetry_ratio": layer_ratios,
+                }
+            )
+            ratio_history.append(
+                {
+                    "epoch": 0,
+                    "layer_asymmetry_ratio": layer_ratios,
+                }
+            )
+            continue
+
         match = EPOCH_SUMMARY_RE.search(line)
         if match is None:
             continue
