@@ -125,10 +125,18 @@ def main() -> None:
     if args.dry_run:
         return
 
-    from remote_lab.training import train_experiment
+    task_type = str(config.get("task_type", "text_mlm"))
+    if task_type == "vision_classification":
+        from remote_lab.vision_training import train_vision_experiment
+
+        train_fn = train_vision_experiment
+    else:
+        from remote_lab.training import train_experiment
+
+        train_fn = train_experiment
 
     print("training_status=starting")
-    summary = train_experiment(config=config, output_dir=output_dir, project_root=project_root)
+    summary = train_fn(config=config, output_dir=output_dir, project_root=project_root)
     print("training_status=completed")
     print("run_summary=")
     print(json.dumps(summary, indent=2, sort_keys=True))

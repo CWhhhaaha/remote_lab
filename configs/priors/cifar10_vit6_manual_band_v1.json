@@ -1,0 +1,37 @@
+{
+  "name": "cifar10_vit6_manual_band_v1",
+  "source": "user-defined broad visual interval band",
+  "metric": "asymmetry_ratio",
+  "layers": [
+    {
+      "layer": 1,
+      "rho_min": 0.2,
+      "rho_max": 0.4
+    },
+    {
+      "layer": 2,
+      "rho_min": 0.1,
+      "rho_max": 0.22
+    },
+    {
+      "layer": 3,
+      "rho_min": 0.05,
+      "rho_max": 0.14
+    },
+    {
+      "layer": 4,
+      "rho_min": 0.06,
+      "rho_max": 0.15
+    },
+    {
+      "layer": 5,
+      "rho_min": 0.08,
+      "rho_max": 0.18
+    },
+    {
+      "layer": 6,
+      "rho_min": 0.1,
+      "rho_max": 0.2
+    }
+  ]
+}
