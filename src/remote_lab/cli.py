@@ -130,6 +130,10 @@ def main() -> None:
         from remote_lab.vision_training import train_vision_experiment
 
         train_fn = train_vision_experiment
+    elif task_type == "vision_classification_recipe":
+        from remote_lab.vision_training_recipe import train_vision_recipe_experiment
+
+        train_fn = train_vision_recipe_experiment
     else:
         from remote_lab.training import train_experiment
 
