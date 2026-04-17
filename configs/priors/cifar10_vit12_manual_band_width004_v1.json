@@ -5,63 +5,63 @@
   "layers": [
     {
       "layer": 1,
-      "rho_min": 0.07452344,
-      "rho_max": 0.11452344
+      "rho_min": 0.075,
+      "rho_max": 0.115
     },
     {
       "layer": 2,
-      "rho_min": 0.17330824,
-      "rho_max": 0.21330824
+      "rho_min": 0.173,
+      "rho_max": 0.213
     },
     {
       "layer": 3,
-      "rho_min": 0.23050375,
-      "rho_max": 0.27050375
+      "rho_min": 0.231,
+      "rho_max": 0.271
     },
     {
       "layer": 4,
-      "rho_min": 0.25688706,
-      "rho_max": 0.29688706
+      "rho_min": 0.257,
+      "rho_max": 0.297
     },
     {
       "layer": 5,
-      "rho_min": 0.28194527,
-      "rho_max": 0.32194527
+      "rho_min": 0.282,
+      "rho_max": 0.322
     },
     {
       "layer": 6,
-      "rho_min": 0.31165258,
-      "rho_max": 0.35165258
+      "rho_min": 0.312,
+      "rho_max": 0.352
     },
     {
       "layer": 7,
-      "rho_min": 0.32524745,
-      "rho_max": 0.36524745
+      "rho_min": 0.325,
+      "rho_max": 0.365
     },
     {
       "layer": 8,
-      "rho_min": 0.3329653,
-      "rho_max": 0.3729653
+      "rho_min": 0.333,
+      "rho_max": 0.373
     },
     {
       "layer": 9,
-      "rho_min": 0.36147363,
-      "rho_max": 0.40147363
+      "rho_min": 0.361,
+      "rho_max": 0.401
     },
     {
       "layer": 10,
-      "rho_min": 0.40349786,
-      "rho_max": 0.44349786
+      "rho_min": 0.403,
+      "rho_max": 0.443
     },
     {
       "layer": 11,
-      "rho_min": 0.46342592,
-      "rho_max": 0.50342592
+      "rho_min": 0.463,
+      "rho_max": 0.503
     },
     {
       "layer": 12,
-      "rho_min": 0.40813632,
-      "rho_max": 0.44813632
+      "rho_min": 0.408,
+      "rho_max": 0.448
     }
   ]
 }
