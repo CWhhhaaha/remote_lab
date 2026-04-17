@@ -1,0 +1,79 @@
+{
+  "experiment_name": "cifar10-vit12-interval-linear-lambda05-b2048-recipe-ema999-reverse070-080-front10-every5-v1",
+  "task_type": "vision_classification_recipe",
+  "seed": 42,
+  "dataset": {
+    "name": "cifar10",
+    "data_root": "data/raw/cifar10",
+    "num_classes": 10,
+    "image_size": 32,
+    "mean": [0.4914, 0.4822, 0.4465],
+    "std": [0.247, 0.2435, 0.2616]
+  },
+  "model": {
+    "architecture": "vit",
+    "image_size": 32,
+    "patch_size": 4,
+    "num_channels": 3,
+    "hidden_size": 128,
+    "num_hidden_layers": 12,
+    "num_attention_heads": 4,
+    "intermediate_size": 256,
+    "hidden_dropout_prob": 0.1,
+    "attention_dropout_prob": 0.1
+  },
+  "initialization": {
+    "query_key": "standard"
+  },
+  "training": {
+    "max_epochs": 200,
+    "per_device_batch_size": 2048,
+    "gradient_accumulation_steps": 1,
+    "effective_batch_size": 2048,
+    "learning_rate": 0.003,
+    "weight_decay": 0.05,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "warmup_epochs": 30,
+    "warmup_start_factor": 0.033,
+    "num_workers": 4,
+    "label_smoothing": 0.01,
+    "use_amp": true,
+    "eval_every_epochs": 1
+  },
+  "augmentation": {
+    "mixup_alpha": 0.2,
+    "cutmix_alpha": 1.0,
+    "switch_prob": 0.5
+  },
+  "ema": {
+    "enabled": true,
+    "decay": 0.999,
+    "update_every_steps": 1
+  },
+  "regularization": {
+    "enabled": true,
+    "type": "interval_asymmetry_ratio",
+    "penalty": "linear_hinge",
+    "lambda": 0.5,
+    "interval_config": "configs/priors/cifar10_vit12_reverse_band_070_080_v1.json",
+    "schedule": [
+      {
+        "epoch_start": 1,
+        "epoch_end": 10,
+        "every_n_epochs": 1
+      },
+      {
+        "epoch_start": 11,
+        "epoch_end": 200,
+        "every_n_epochs": 5
+      }
+    ]
+  },
+  "instrumentation": {
+    "measure_training_time": true,
+    "measure_flops": true,
+    "exclude_analysis_time": true,
+    "exclude_analysis_flops": true
+  }
+}
