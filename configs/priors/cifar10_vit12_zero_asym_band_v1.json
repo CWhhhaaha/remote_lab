@@ -1,0 +1,67 @@
+{
+  "name": "cifar10_vit12_zero_asym_band_v1",
+  "metric": "asymmetry_ratio",
+  "source": "strict zero-asymmetry target with all layers constrained to [0.0, 0.0]",
+  "layers": [
+    {
+      "layer": 1,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 2,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 3,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 4,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 5,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 6,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 7,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 8,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 9,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 10,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 11,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    },
+    {
+      "layer": 12,
+      "rho_min": 0.0,
+      "rho_max": 0.0
+    }
+  ]
+}
