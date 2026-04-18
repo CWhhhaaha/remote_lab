@@ -71,7 +71,7 @@ class LayerSymmetricLatentSelfAttention(nn.Module):
         hidden_states: torch.Tensor,
         head_mask: torch.Tensor | None = None,
         output_attentions: bool = False,
-    ) -> tuple[torch.Tensor, ...]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         # Shared latent projection: [batch, seq, r]
         latent = self.basis(hidden_states)
         # [heads, r, r]
@@ -92,8 +92,7 @@ class LayerSymmetricLatentSelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(new_context_layer_shape)
 
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
-        return outputs
+        return context_layer, (attention_probs if output_attentions else None)
 
 
 def apply_layer_symmetric_latent_attention(
