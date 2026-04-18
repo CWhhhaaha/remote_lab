@@ -19,6 +19,8 @@ from torchvision import datasets, transforms
 from tqdm.auto import tqdm
 from transformers import ViTConfig, ViTForImageClassification
 
+from remote_lab.layer_symmetric_latent_attention import apply_layer_symmetric_latent_attention
+
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -100,7 +102,10 @@ def build_vit_model(model_config: dict[str, Any], num_classes: int) -> ViTForIma
         num_labels=num_classes,
         qkv_bias=True,
     )
-    return ViTForImageClassification(config)
+    model = ViTForImageClassification(config)
+    if str(model_config.get("attention_variant", "standard")) == "layer_symmetric_latent":
+        model = apply_layer_symmetric_latent_attention(model, model_config)
+    return model
 
 
 def iter_attention_layers(model: ViTForImageClassification) -> Iterable[Any]:
@@ -111,9 +116,19 @@ def apply_symmetric_query_key_initialization(model: ViTForImageClassification) -
     with torch.no_grad():
         for layer in iter_attention_layers(model):
             attention = layer.attention.attention
+            if not hasattr(attention, "query") or not hasattr(attention, "key"):
+                continue
             attention.key.weight.copy_(attention.query.weight)
             if attention.query.bias is not None and attention.key.bias is not None:
                 attention.key.bias.copy_(attention.query.bias)
+
+
+def compute_attention_kernel(attention: Any) -> torch.Tensor:
+    if hasattr(attention, "effective_layer_kernel"):
+        return attention.effective_layer_kernel()
+    if hasattr(attention, "query") and hasattr(attention, "key"):
+        return attention.query.weight @ attention.key.weight.T
+    raise TypeError(f"Unsupported attention module type for kernel extraction: {type(attention)!r}")
 
 
 def compute_layer_asymmetry_ratios(model: ViTForImageClassification) -> list[float]:
@@ -121,9 +136,7 @@ def compute_layer_asymmetry_ratios(model: ViTForImageClassification) -> list[flo
     with torch.no_grad():
         for layer in iter_attention_layers(model):
             attention = layer.attention.attention
-            w_q = attention.query.weight.detach()
-            w_k = attention.key.weight.detach()
-            gram = w_q @ w_k.T
+            gram = compute_attention_kernel(attention).detach()
             asym = 0.5 * (gram - gram.T)
             denom = torch.sum(gram * gram).clamp_min(1e-12)
             ratio = torch.sum(asym * asym) / denom
@@ -140,9 +153,7 @@ def compute_reg_loss(
     ratios: list[float] = []
     for layer, interval in zip(iter_attention_layers(model), intervals):
         attention = layer.attention.attention
-        w_q = attention.query.weight
-        w_k = attention.key.weight
-        gram = w_q @ w_k.T
+        gram = compute_attention_kernel(attention)
         asym = 0.5 * (gram - gram.T)
         denom = torch.sum(gram * gram).clamp_min(1e-12)
         ratio = torch.sum(asym * asym) / denom

@@ -104,6 +104,12 @@ def main() -> None:
     config = load_json(config_path)
     interval_data = resolve_interval_config(project_root, config, config_path)
     dataset_paths = resolve_dataset_paths(project_root, config)
+    model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
+    attention_summary = None
+    if str(model.get("attention_variant", "standard")) == "layer_symmetric_latent":
+        from remote_lab.layer_symmetric_latent_attention import summarize_layer_symmetric_latent_attention
+
+        attention_summary = summarize_layer_symmetric_latent_attention(model)
 
     if not args.dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -119,6 +125,9 @@ def main() -> None:
     if interval_data is not None:
         print("interval_summary=")
         print(json.dumps(summarize_interval_config(interval_data), indent=2, sort_keys=True))
+    if attention_summary is not None:
+        print("attention_summary=")
+        print(json.dumps(attention_summary, indent=2, sort_keys=True))
     print("config_contents=")
     print(json.dumps(config, indent=2, sort_keys=True))
 
