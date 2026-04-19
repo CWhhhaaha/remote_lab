@@ -19,7 +19,7 @@ from transformers import ViTForImageClassification
 from remote_lab.vision_training import (
     RunPaths,
     apply_symmetric_query_key_initialization,
-    build_cifar10_loaders,
+    build_vision_loaders,
     build_vit_model,
     compute_layer_asymmetry_ratios,
     compute_reg_loss,
@@ -171,7 +171,7 @@ def train_vision_recipe_experiment(
         apply_symmetric_query_key_initialization(model)
     model.to(device)
 
-    train_loader, test_loader = build_cifar10_loaders(dataset_config, training)
+    train_loader, test_loader = build_vision_loaders(dataset_config, training)
     grad_accum_steps = int(training.get("gradient_accumulation_steps", 1))
 
     optimizer = torch.optim.AdamW(

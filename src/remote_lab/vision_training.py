@@ -239,6 +239,89 @@ def build_cifar10_loaders(
     return train_loader, test_loader
 
 
+def resolve_imagefolder_split_dirs(dataset_config: dict[str, Any]) -> tuple[Path, Path]:
+    resolved_paths = dataset_config.get("resolved_paths", {}) if isinstance(dataset_config.get("resolved_paths"), dict) else {}
+    train_dir = resolved_paths.get("train_dir")
+    val_dir = resolved_paths.get("val_dir")
+    data_root = resolved_paths.get("data_root")
+
+    if train_dir and val_dir:
+        return Path(train_dir), Path(val_dir)
+    if data_root:
+        root = Path(data_root)
+        candidate_train = root / "train"
+        candidate_val = root / "val"
+        if candidate_train.exists() and candidate_val.exists():
+            return candidate_train, candidate_val
+    raise FileNotFoundError(
+        "Could not resolve ImageFolder train/val directories. "
+        "Expected dataset.train_dir and dataset.val_dir, or dataset.data_root with train/ and val/ subdirectories."
+    )
+
+
+def build_imagenet1k_loaders(
+    dataset_config: dict[str, Any],
+    training_config: dict[str, Any],
+) -> tuple[DataLoader, DataLoader]:
+    image_size = int(dataset_config.get("image_size", 224))
+    eval_resize_size = int(dataset_config.get("eval_resize_size", round(image_size / 0.875)))
+    mean = tuple(float(x) for x in dataset_config.get("mean", [0.485, 0.456, 0.406]))
+    std = tuple(float(x) for x in dataset_config.get("std", [0.229, 0.224, 0.225]))
+    per_device_batch_size = int(training_config["per_device_batch_size"])
+    num_workers = resolve_num_workers(training_config)
+    train_dir, val_dir = resolve_imagefolder_split_dirs(dataset_config)
+
+    train_transform = transforms.Compose(
+        [
+            transforms.RandomResizedCrop(image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ]
+    )
+    test_transform = transforms.Compose(
+        [
+            transforms.Resize(eval_resize_size),
+            transforms.CenterCrop(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ]
+    )
+
+    train_dataset = datasets.ImageFolder(root=train_dir, transform=train_transform)
+    test_dataset = datasets.ImageFolder(root=val_dir, transform=test_transform)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=per_device_batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=per_device_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+    )
+    return train_loader, test_loader
+
+
+def build_vision_loaders(
+    dataset_config: dict[str, Any],
+    training_config: dict[str, Any],
+) -> tuple[DataLoader, DataLoader]:
+    dataset_name = str(dataset_config.get("name", "cifar10")).lower()
+    if dataset_name == "cifar10":
+        return build_cifar10_loaders(dataset_config, training_config)
+    if dataset_name in {"imagenet1k", "imagenet-1k", "imagenet_1k", "imagenet"}:
+        return build_imagenet1k_loaders(dataset_config, training_config)
+    raise ValueError(f"Unsupported vision dataset: {dataset_name}")
+
+
 def format_init_summary(
     *,
     experiment_name: str,
@@ -341,7 +424,7 @@ def train_vision_experiment(
         apply_symmetric_query_key_initialization(model)
     model.to(device)
 
-    train_loader, test_loader = build_cifar10_loaders(dataset_config, training)
+    train_loader, test_loader = build_vision_loaders(dataset_config, training)
     per_device_batch_size = int(training["per_device_batch_size"])
     grad_accum_steps = int(training.get("gradient_accumulation_steps", 1))
 
