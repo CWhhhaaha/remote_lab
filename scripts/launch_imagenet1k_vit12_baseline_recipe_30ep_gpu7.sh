@@ -14,6 +14,7 @@ mkdir -p "${OUTPUT_DIR}"
 nohup bash -lc "
 cd '${PROJECT_ROOT}'
 export CUDA_VISIBLE_DEVICES='${GPU_ID}'
+export PYTHONPATH='${PROJECT_ROOT}/src':\"\${PYTHONPATH:-}\"
 '${PYTHON_BIN}' -m remote_lab.cli \
   --config configs/experiments/imagenet1k_vit12_baseline_recipe_30ep_v1.json \
   --output-dir runs/${RUN_NAME}

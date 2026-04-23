@@ -17,6 +17,7 @@ nohup bash -lc "
 set -euo pipefail
 cd '${PROJECT_ROOT}'
 export CUDA_VISIBLE_DEVICES='${GPU_ID}'
+export PYTHONPATH='${PROJECT_ROOT}/src':\"\${PYTHONPATH:-}\"
 
 echo '[pair] starting baseline at '\"\$(date -Is)\"
 '${PYTHON_BIN}' -m remote_lab.cli \
