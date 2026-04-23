@@ -4,7 +4,13 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GPU_ID="${GPU_ID:-7}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "/data/chenwei/.conda/envs/remote_lab/bin/python" ]]; then
+    PYTHON_BIN="/data/chenwei/.conda/envs/remote_lab/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 BASELINE_RUN_NAME="imagenet1k_vit12_baseline_recipe_30ep_gpu${GPU_ID}"
 BMB_RUN_NAME="imagenet1k_vit12_bmb_recipe_r64_30ep_gpu${GPU_ID}"
 BASELINE_OUTPUT_DIR="${PROJECT_ROOT}/runs/${BASELINE_RUN_NAME}"
