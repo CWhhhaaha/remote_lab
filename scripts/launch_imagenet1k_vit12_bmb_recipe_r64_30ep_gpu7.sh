@@ -4,6 +4,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GPU_ID="${GPU_ID:-7}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 RUN_NAME="imagenet1k_vit12_bmb_recipe_r64_30ep_gpu${GPU_ID}"
 OUTPUT_DIR="${PROJECT_ROOT}/runs/${RUN_NAME}"
 LOG_PATH="${OUTPUT_DIR}/train.log"
@@ -13,7 +14,7 @@ mkdir -p "${OUTPUT_DIR}"
 nohup bash -lc "
 cd '${PROJECT_ROOT}'
 export CUDA_VISIBLE_DEVICES='${GPU_ID}'
-python -m remote_lab.cli \
+'${PYTHON_BIN}' -m remote_lab.cli \
   --config configs/experiments/imagenet1k_vit12_bmb_recipe_r64_30ep_v1.json \
   --output-dir runs/${RUN_NAME}
 " > "${LOG_PATH}" 2>&1 &

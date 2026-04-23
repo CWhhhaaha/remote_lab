@@ -4,6 +4,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GPU_ID="${GPU_ID:-7}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 BASELINE_RUN_NAME="imagenet1k_vit12_baseline_recipe_30ep_gpu${GPU_ID}"
 BMB_RUN_NAME="imagenet1k_vit12_bmb_recipe_r64_30ep_gpu${GPU_ID}"
 BASELINE_OUTPUT_DIR="${PROJECT_ROOT}/runs/${BASELINE_RUN_NAME}"
@@ -18,14 +19,14 @@ cd '${PROJECT_ROOT}'
 export CUDA_VISIBLE_DEVICES='${GPU_ID}'
 
 echo '[pair] starting baseline at '\"\$(date -Is)\"
-python -m remote_lab.cli \
+'${PYTHON_BIN}' -m remote_lab.cli \
   --config configs/experiments/imagenet1k_vit12_baseline_recipe_30ep_v1.json \
   --output-dir runs/${BASELINE_RUN_NAME} \
   > runs/${BASELINE_RUN_NAME}/train.log 2>&1
 echo '[pair] finished baseline at '\"\$(date -Is)\"
 
 echo '[pair] starting bmb_r64 at '\"\$(date -Is)\"
-python -m remote_lab.cli \
+'${PYTHON_BIN}' -m remote_lab.cli \
   --config configs/experiments/imagenet1k_vit12_bmb_recipe_r64_30ep_v1.json \
   --output-dir runs/${BMB_RUN_NAME} \
   > runs/${BMB_RUN_NAME}/train.log 2>&1
