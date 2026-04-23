@@ -1,5 +1,5 @@
 {
-  "experiment_name": "imagenet1k-vit12-baseline-recipe-smoke5-v1",
+  "experiment_name": "imagenet1k-vit12-bmb-recipe-r64-30ep-v1",
   "task_type": "vision_classification_recipe",
   "seed": 42,
   "dataset": {
@@ -14,6 +14,8 @@
   },
   "model": {
     "architecture": "vit",
+    "attention_variant": "layer_symmetric_latent",
+    "latent_rank": 64,
     "image_size": 224,
     "patch_size": 16,
     "num_channels": 3,
@@ -28,7 +30,7 @@
     "query_key": "standard"
   },
   "training": {
-    "max_epochs": 5,
+    "max_epochs": 30,
     "per_device_batch_size": 256,
     "gradient_accumulation_steps": 2,
     "effective_batch_size": 512,
@@ -36,7 +38,7 @@
     "weight_decay": 0.05,
     "beta1": 0.9,
     "beta2": 0.999,
-    "warmup_epochs": 1,
+    "warmup_epochs": 5,
     "warmup_start_factor": 0.033,
     "num_workers": 8,
     "label_smoothing": 0.11,

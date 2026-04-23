@@ -127,9 +127,10 @@ def evaluate_model_recipe(
     dataloader: DataLoader,
     device: torch.device,
     criterion: nn.Module,
-) -> tuple[float | None, float | None, float]:
+) -> tuple[float | None, float | None, float | None, float]:
     losses: list[float] = []
-    correct = 0
+    correct_top1 = 0
+    correct_top5 = 0
     total = 0
     model.eval()
     maybe_sync(device)
@@ -140,12 +141,219 @@ def evaluate_model_recipe(
             labels = labels.to(device, non_blocking=True)
             logits = model(pixel_values=pixel_values).logits
             losses.append(float(criterion(logits, labels).item()))
-            correct += int((logits.argmax(dim=-1) == labels).sum().item())
+            max_k = min(5, logits.size(-1))
+            predictions = logits.topk(max_k, dim=-1).indices
+            correct_top1 += int((predictions[:, 0] == labels).sum().item())
+            correct_top5 += int((predictions == labels.unsqueeze(1)).any(dim=1).sum().item())
             total += int(labels.numel())
     maybe_sync(device)
     duration = time.perf_counter() - start
-    accuracy = (correct / total) if total > 0 else None
-    return (safe_mean(losses) if losses else None), accuracy, duration
+    top1 = (correct_top1 / total) if total > 0 else None
+    top5 = (correct_top5 / total) if total > 0 else None
+    return (safe_mean(losses) if losses else None), top1, top5, duration
+
+
+def bytes_to_mb(value: int | float | None) -> float | None:
+    if value is None:
+        return None
+    return float(value) / (1024.0 * 1024.0)
+
+
+def current_cuda_peak_memory(device: torch.device) -> dict[str, float | None]:
+    if device.type != "cuda":
+        return {
+            "peak_cuda_memory_allocated_mb": None,
+            "peak_cuda_memory_reserved_mb": None,
+        }
+    return {
+        "peak_cuda_memory_allocated_mb": bytes_to_mb(torch.cuda.max_memory_allocated(device)),
+        "peak_cuda_memory_reserved_mb": bytes_to_mb(torch.cuda.max_memory_reserved(device)),
+    }
+
+
+def count_attention_parameters(model: ViTForImageClassification) -> int:
+    return sum(param.numel() for name, param in model.named_parameters() if ".attention." in name)
+
+
+def count_qk_score_parameters(model: ViTForImageClassification) -> int:
+    total = 0
+    for layer in model.vit.encoder.layer:
+        attention = layer.attention.attention
+        if hasattr(attention, "query") and hasattr(attention, "key"):
+            total += sum(param.numel() for param in attention.query.parameters())
+            total += sum(param.numel() for param in attention.key.parameters())
+        else:
+            for attr in ("basis", "core", "head_residual"):
+                module_or_param = getattr(attention, attr, None)
+                if module_or_param is None:
+                    continue
+                if isinstance(module_or_param, nn.Parameter):
+                    total += module_or_param.numel()
+                elif isinstance(module_or_param, nn.Module):
+                    total += sum(param.numel() for param in module_or_param.parameters())
+    return total
+
+
+def theoretical_attention_summary(model_config: dict[str, Any]) -> dict[str, float | int | str | None]:
+    hidden_size = int(model_config["hidden_size"])
+    num_heads = int(model_config["num_attention_heads"])
+    num_layers = int(model_config["num_hidden_layers"])
+    image_size = int(model_config.get("image_size", 32))
+    patch_size = int(model_config.get("patch_size", 4))
+    tokens = (image_size // patch_size) ** 2 + 1
+    variant = str(model_config.get("attention_variant", "standard"))
+    head_dim = hidden_size // num_heads
+
+    baseline_qk_params_per_layer = 2 * hidden_size * hidden_size
+    baseline_attention_params_per_layer = 4 * hidden_size * hidden_size
+    baseline_qk_flops_per_layer = 4 * tokens * hidden_size * hidden_size + 2 * tokens * tokens * hidden_size
+    baseline_attention_flops_per_layer = 8 * tokens * hidden_size * hidden_size + 4 * tokens * tokens * hidden_size
+
+    if variant == "layer_symmetric_latent":
+        latent_rank = int(model_config["latent_rank"])
+        qk_params_per_layer = hidden_size * latent_rank + (num_heads + 1) * latent_rank * latent_rank
+        attention_params_per_layer = qk_params_per_layer + 2 * hidden_size * hidden_size
+        qk_flops_per_layer = (
+            2 * tokens * hidden_size * latent_rank
+            + 2 * num_heads * tokens * latent_rank * latent_rank
+            + 2 * num_heads * tokens * tokens * latent_rank
+        )
+        attention_flops_per_layer = qk_flops_per_layer + 4 * tokens * hidden_size * hidden_size + 2 * tokens * tokens * hidden_size
+    else:
+        latent_rank = None
+        qk_params_per_layer = baseline_qk_params_per_layer
+        attention_params_per_layer = baseline_attention_params_per_layer
+        qk_flops_per_layer = baseline_qk_flops_per_layer
+        attention_flops_per_layer = baseline_attention_flops_per_layer
+
+    return {
+        "attention_variant": variant,
+        "latent_rank": latent_rank,
+        "hidden_size": hidden_size,
+        "num_layers": num_layers,
+        "num_heads": num_heads,
+        "head_dim": head_dim,
+        "tokens_per_example": tokens,
+        "qk_weight_params_per_layer": qk_params_per_layer,
+        "qk_weight_params_total": qk_params_per_layer * num_layers,
+        "baseline_qk_weight_params_total": baseline_qk_params_per_layer * num_layers,
+        "qk_weight_param_reduction_pct": round(
+            100.0 * (baseline_qk_params_per_layer - qk_params_per_layer) / baseline_qk_params_per_layer, 6
+        ),
+        "attention_weight_params_per_layer": attention_params_per_layer,
+        "attention_weight_params_total": attention_params_per_layer * num_layers,
+        "baseline_attention_weight_params_total": baseline_attention_params_per_layer * num_layers,
+        "attention_weight_param_reduction_pct": round(
+            100.0
+            * (baseline_attention_params_per_layer - attention_params_per_layer)
+            / baseline_attention_params_per_layer,
+            6,
+        ),
+        "qk_flops_per_example_per_layer": qk_flops_per_layer,
+        "qk_flops_per_example_total": qk_flops_per_layer * num_layers,
+        "baseline_qk_flops_per_example_total": baseline_qk_flops_per_layer * num_layers,
+        "qk_flops_reduction_pct": round(
+            100.0 * (baseline_qk_flops_per_layer - qk_flops_per_layer) / baseline_qk_flops_per_layer, 6
+        ),
+        "attention_flops_per_example_per_layer": attention_flops_per_layer,
+        "attention_flops_per_example_total": attention_flops_per_layer * num_layers,
+        "baseline_attention_flops_per_example_total": baseline_attention_flops_per_layer * num_layers,
+        "attention_flops_reduction_pct": round(
+            100.0
+            * (baseline_attention_flops_per_layer - attention_flops_per_layer)
+            / baseline_attention_flops_per_layer,
+            6,
+        ),
+    }
+
+
+def entropy_effective_rank(matrix: torch.Tensor, eps: float = 1e-12) -> float:
+    singular_values = torch.linalg.svdvals(matrix.float())
+    total = singular_values.sum().clamp_min(eps)
+    probs = singular_values / total
+    entropy = -(probs * torch.log(probs.clamp_min(eps))).sum()
+    return float(torch.exp(entropy).item())
+
+
+def off_diagonal_mean(matrix: torch.Tensor) -> float | None:
+    size = matrix.size(0)
+    if size <= 1:
+        return None
+    mask = ~torch.eye(size, dtype=torch.bool, device=matrix.device)
+    return float(matrix[mask].mean().item())
+
+
+def summarize_values(values: list[float]) -> dict[str, float | None]:
+    if not values:
+        return {"mean": None, "min": None, "max": None}
+    return {
+        "mean": round(sum(values) / len(values), 6),
+        "min": round(min(values), 6),
+        "max": round(max(values), 6),
+    }
+
+
+def summarize_bmb_diagnostics(model: ViTForImageClassification) -> dict[str, Any] | None:
+    per_layer: list[dict[str, Any]] = []
+    erank_b_values: list[float] = []
+    erank_m_values: list[float] = []
+    head_cos_values: list[float] = []
+
+    with torch.no_grad():
+        for layer_idx, layer in enumerate(model.vit.encoder.layer, start=1):
+            attention = layer.attention.attention
+            if not hasattr(attention, "basis") or not hasattr(attention, "head_matrices"):
+                continue
+
+            basis = attention.basis.weight.detach().float().transpose(0, 1).cpu()
+            head_matrices = attention.head_matrices().detach().float().cpu()
+
+            erank_b = entropy_effective_rank(basis)
+            erank_m_per_head = [entropy_effective_rank(head_matrices[head_idx]) for head_idx in range(head_matrices.size(0))]
+
+            flattened = F.normalize(head_matrices.reshape(head_matrices.size(0), -1), dim=1)
+            similarity = flattened @ flattened.transpose(0, 1)
+            head_cosine_mean = off_diagonal_mean(similarity)
+
+            erank_b_values.append(erank_b)
+            erank_m_values.extend(erank_m_per_head)
+            if head_cosine_mean is not None:
+                head_cos_values.append(head_cosine_mean)
+
+            per_layer.append(
+                {
+                    "layer": layer_idx,
+                    "effective_rank_B": round(erank_b, 6),
+                    "effective_rank_M_mean": round(sum(erank_m_per_head) / len(erank_m_per_head), 6),
+                    "effective_rank_M_min": round(min(erank_m_per_head), 6),
+                    "effective_rank_M_max": round(max(erank_m_per_head), 6),
+                    "head_M_cosine_similarity_mean": round(head_cosine_mean, 6) if head_cosine_mean is not None else None,
+                }
+            )
+
+    if not per_layer:
+        return None
+
+    return {
+        "effective_rank_B_final": summarize_values(erank_b_values),
+        "effective_rank_M_final": summarize_values(erank_m_values),
+        "head_M_cosine_similarity_final": summarize_values(head_cos_values),
+        "per_layer": per_layer,
+    }
+
+
+def best_metric(rows: list[dict[str, Any]], key: str) -> tuple[float | None, int | None]:
+    best_value: float | None = None
+    best_epoch: int | None = None
+    for row in rows:
+        value = row.get(key)
+        if value is None:
+            continue
+        numeric = float(value)
+        if best_value is None or numeric > best_value:
+            best_value = numeric
+            best_epoch = int(row["epoch"])
+    return best_value, best_epoch
 
 
 def train_vision_recipe_experiment(
@@ -172,7 +380,16 @@ def train_vision_recipe_experiment(
     model.to(device)
 
     train_loader, test_loader = build_vision_loaders(dataset_config, training)
+    train_dataset_size = len(train_loader.dataset)
+    eval_dataset_size = len(test_loader.dataset)
     grad_accum_steps = int(training.get("gradient_accumulation_steps", 1))
+    parameter_summary = {
+        "total_params": sum(param.numel() for param in model.parameters()),
+        "trainable_params": sum(param.numel() for param in model.parameters() if param.requires_grad),
+        "attention_params": count_attention_parameters(model),
+        "qk_score_params": count_qk_score_parameters(model),
+    }
+    attention_theory_summary = theoretical_attention_summary(model_config)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -242,16 +459,21 @@ def train_vision_recipe_experiment(
     total_task_flops = 0
     total_reg_flops = 0
     total_analysis_flops = 0
+    measure_layer_ratios = bool(instrumentation.get("measure_layer_ratios", False))
 
-    maybe_sync(device)
-    init_analysis_start = time.perf_counter()
-    initial_layer_ratios = compute_layer_asymmetry_ratios(model)
-    maybe_sync(device)
-    init_analysis_time = time.perf_counter() - init_analysis_start
-    total_analysis_time += init_analysis_time
-    total_analysis_flops += analysis_flops_per_epoch
+    initial_layer_ratios: list[float] | None = None
+    init_analysis_time = 0.0
+    if measure_layer_ratios:
+        maybe_sync(device)
+        init_analysis_start = time.perf_counter()
+        initial_layer_ratios = compute_layer_asymmetry_ratios(model)
+        maybe_sync(device)
+        init_analysis_time = time.perf_counter() - init_analysis_start
+        total_analysis_time += init_analysis_time
+        total_analysis_flops += analysis_flops_per_epoch
 
-    ratio_history.append({"epoch": 0, "layer_asymmetry_ratio": [round(v, 8) for v in initial_layer_ratios]})
+    if initial_layer_ratios is not None:
+        ratio_history.append({"epoch": 0, "layer_asymmetry_ratio": [round(v, 8) for v in initial_layer_ratios]})
     epoch_metrics.append(
         {
             "epoch": 0,
@@ -265,11 +487,23 @@ def train_vision_recipe_experiment(
             "eval_accuracy": None,
             "eval_loss_raw": None,
             "eval_accuracy_raw": None,
+            "eval_top5_accuracy_raw": None,
             "eval_loss_ema": None,
             "eval_accuracy_ema": None,
+            "eval_top5_accuracy_ema": None,
             "analysis_time_sec": round(init_analysis_time, 6),
             "learning_rate": optimizer.param_groups[0]["lr"],
-            "layer_asymmetry_ratio": [round(v, 8) for v in initial_layer_ratios],
+            "train_images_per_sec": None,
+            "eval_images_per_sec": None,
+            "train_peak_cuda_memory_allocated_mb": None,
+            "train_peak_cuda_memory_reserved_mb": None,
+            "eval_peak_cuda_memory_allocated_mb": None,
+            "eval_peak_cuda_memory_reserved_mb": None,
+            "peak_cuda_memory_allocated_mb": None,
+            "peak_cuda_memory_reserved_mb": None,
+            "layer_asymmetry_ratio": (
+                [round(v, 8) for v in initial_layer_ratios] if initial_layer_ratios is not None else None
+            ),
         }
     )
     print(
@@ -298,10 +532,20 @@ def train_vision_recipe_experiment(
         eval_time_sec: float | None = None
         eval_loss_raw: float | None = None
         eval_accuracy_raw: float | None = None
+        eval_top5_accuracy_raw: float | None = None
         eval_loss_ema: float | None = None
         eval_accuracy_ema: float | None = None
+        eval_top5_accuracy_ema: float | None = None
+        eval_top5_accuracy: float | None = None
+        eval_images_per_sec: float | None = None
+        eval_peak_memory = {
+            "peak_cuda_memory_allocated_mb": None,
+            "peak_cuda_memory_reserved_mb": None,
+        }
 
         maybe_sync(device)
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
         epoch_train_start = time.perf_counter()
 
         for microbatch_idx, (pixel_values, labels) in enumerate(train_loader, start=1):
@@ -365,30 +609,65 @@ def train_vision_recipe_experiment(
         maybe_sync(device)
         epoch_train_time = time.perf_counter() - epoch_train_start
         total_training_time += epoch_train_time
+        train_images_per_sec = train_dataset_size / epoch_train_time if epoch_train_time > 0 else None
+        train_peak_memory = current_cuda_peak_memory(device)
 
-        maybe_sync(device)
-        analysis_start = time.perf_counter()
-        layer_ratios = compute_layer_asymmetry_ratios(model)
-        maybe_sync(device)
-        analysis_time = time.perf_counter() - analysis_start
-        total_analysis_time += analysis_time
-        total_analysis_flops += analysis_flops_per_epoch
+        layer_ratios: list[float] | None = None
+        analysis_time = 0.0
+        if measure_layer_ratios:
+            maybe_sync(device)
+            analysis_start = time.perf_counter()
+            layer_ratios = compute_layer_asymmetry_ratios(model)
+            maybe_sync(device)
+            analysis_time = time.perf_counter() - analysis_start
+            total_analysis_time += analysis_time
+            total_analysis_flops += analysis_flops_per_epoch
 
         if eval_every_epochs > 0 and epoch % eval_every_epochs == 0:
-            eval_loss_raw, eval_accuracy_raw, raw_duration = evaluate_model_recipe(model, test_loader, device, eval_criterion)
+            if device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(device)
+            eval_loss_raw, eval_accuracy_raw, eval_top5_accuracy_raw, raw_duration = evaluate_model_recipe(
+                model, test_loader, device, eval_criterion
+            )
             total_eval_time += raw_duration
             eval_time_sec = raw_duration
             if ema_model is not None:
-                eval_loss_ema, eval_accuracy_ema, ema_duration = evaluate_model_recipe(ema_model.module, test_loader, device, eval_criterion)
+                eval_loss_ema, eval_accuracy_ema, eval_top5_accuracy_ema, ema_duration = evaluate_model_recipe(
+                    ema_model.module, test_loader, device, eval_criterion
+                )
                 total_eval_time += ema_duration
                 eval_time_sec += ema_duration
                 eval_loss = eval_loss_ema
                 eval_accuracy = eval_accuracy_ema
+                eval_top5_accuracy = eval_top5_accuracy_ema
             else:
                 eval_loss = eval_loss_raw
                 eval_accuracy = eval_accuracy_raw
+                eval_top5_accuracy = eval_top5_accuracy_raw
+            eval_images_per_sec = eval_dataset_size / eval_time_sec if eval_time_sec and eval_time_sec > 0 else None
+            eval_peak_memory = current_cuda_peak_memory(device)
 
-        ratio_history.append({"epoch": epoch, "layer_asymmetry_ratio": [round(v, 8) for v in layer_ratios]})
+        peak_allocated_values = [
+            value
+            for value in (
+                train_peak_memory["peak_cuda_memory_allocated_mb"],
+                eval_peak_memory["peak_cuda_memory_allocated_mb"],
+            )
+            if value is not None
+        ]
+        peak_reserved_values = [
+            value
+            for value in (
+                train_peak_memory["peak_cuda_memory_reserved_mb"],
+                eval_peak_memory["peak_cuda_memory_reserved_mb"],
+            )
+            if value is not None
+        ]
+        peak_cuda_memory_allocated_mb = max(peak_allocated_values) if peak_allocated_values else None
+        peak_cuda_memory_reserved_mb = max(peak_reserved_values) if peak_reserved_values else None
+
+        if layer_ratios is not None:
+            ratio_history.append({"epoch": epoch, "layer_asymmetry_ratio": [round(v, 8) for v in layer_ratios]})
         epoch_metrics.append(
             {
                 "epoch": epoch,
@@ -402,11 +681,42 @@ def train_vision_recipe_experiment(
                 "eval_accuracy": round(eval_accuracy, 8) if eval_accuracy is not None else None,
                 "eval_loss_raw": round(eval_loss_raw, 8) if eval_loss_raw is not None else None,
                 "eval_accuracy_raw": round(eval_accuracy_raw, 8) if eval_accuracy_raw is not None else None,
+                "eval_top5_accuracy_raw": round(eval_top5_accuracy_raw, 8) if eval_top5_accuracy_raw is not None else None,
                 "eval_loss_ema": round(eval_loss_ema, 8) if eval_loss_ema is not None else None,
                 "eval_accuracy_ema": round(eval_accuracy_ema, 8) if eval_accuracy_ema is not None else None,
+                "eval_top5_accuracy_ema": round(eval_top5_accuracy_ema, 8) if eval_top5_accuracy_ema is not None else None,
+                "eval_top5_accuracy": round(eval_top5_accuracy, 8) if eval_top5_accuracy is not None else None,
                 "analysis_time_sec": round(analysis_time, 6),
                 "learning_rate": optimizer.param_groups[0]["lr"],
-                "layer_asymmetry_ratio": [round(v, 8) for v in layer_ratios],
+                "train_images_per_sec": round(train_images_per_sec, 6) if train_images_per_sec is not None else None,
+                "eval_images_per_sec": round(eval_images_per_sec, 6) if eval_images_per_sec is not None else None,
+                "train_peak_cuda_memory_allocated_mb": (
+                    round(train_peak_memory["peak_cuda_memory_allocated_mb"], 6)
+                    if train_peak_memory["peak_cuda_memory_allocated_mb"] is not None
+                    else None
+                ),
+                "train_peak_cuda_memory_reserved_mb": (
+                    round(train_peak_memory["peak_cuda_memory_reserved_mb"], 6)
+                    if train_peak_memory["peak_cuda_memory_reserved_mb"] is not None
+                    else None
+                ),
+                "eval_peak_cuda_memory_allocated_mb": (
+                    round(eval_peak_memory["peak_cuda_memory_allocated_mb"], 6)
+                    if eval_peak_memory["peak_cuda_memory_allocated_mb"] is not None
+                    else None
+                ),
+                "eval_peak_cuda_memory_reserved_mb": (
+                    round(eval_peak_memory["peak_cuda_memory_reserved_mb"], 6)
+                    if eval_peak_memory["peak_cuda_memory_reserved_mb"] is not None
+                    else None
+                ),
+                "peak_cuda_memory_allocated_mb": (
+                    round(peak_cuda_memory_allocated_mb, 6) if peak_cuda_memory_allocated_mb is not None else None
+                ),
+                "peak_cuda_memory_reserved_mb": (
+                    round(peak_cuda_memory_reserved_mb, 6) if peak_cuda_memory_reserved_mb is not None else None
+                ),
+                "layer_asymmetry_ratio": [round(v, 8) for v in layer_ratios] if layer_ratios is not None else None,
             }
         )
 
@@ -436,11 +746,20 @@ def train_vision_recipe_experiment(
                 analysis_time_sec=analysis_time,
                 reg_enabled=reg_enabled,
                 layer_ratios=layer_ratios,
+                eval_top5_accuracy=eval_top5_accuracy,
+                train_images_per_sec=train_images_per_sec,
+                eval_images_per_sec=eval_images_per_sec,
+                peak_memory_mb=peak_cuda_memory_allocated_mb,
             ),
             flush=True,
         )
 
     final_row = epoch_metrics[-1] if epoch_metrics else {}
+    best_top1, best_top1_epoch = best_metric(epoch_metrics, "eval_accuracy")
+    best_top5, best_top5_epoch = best_metric(epoch_metrics, "eval_top5_accuracy")
+    best_top1_raw, best_top1_raw_epoch = best_metric(epoch_metrics, "eval_accuracy_raw")
+    best_top5_raw, best_top5_raw_epoch = best_metric(epoch_metrics, "eval_top5_accuracy_raw")
+    bmb_diagnostics = summarize_bmb_diagnostics(model)
     model.save_pretrained(run_paths.model_dir)
     if ema_model is not None:
         ema_model.module.save_pretrained(run_paths.model_dir / "ema")
@@ -456,13 +775,53 @@ def train_vision_recipe_experiment(
         "final_train_loss": final_row.get("avg_total_loss"),
         "final_eval_loss": final_row.get("eval_loss"),
         "final_eval_accuracy": final_row.get("eval_accuracy"),
+        "final_eval_top5_accuracy": final_row.get("eval_top5_accuracy"),
         "final_eval_loss_raw": final_row.get("eval_loss_raw"),
         "final_eval_accuracy_raw": final_row.get("eval_accuracy_raw"),
+        "final_eval_top5_accuracy_raw": final_row.get("eval_top5_accuracy_raw"),
         "final_eval_loss_ema": final_row.get("eval_loss_ema"),
         "final_eval_accuracy_ema": final_row.get("eval_accuracy_ema"),
+        "final_eval_top5_accuracy_ema": final_row.get("eval_top5_accuracy_ema"),
+        "best_eval_accuracy": round(best_top1, 8) if best_top1 is not None else None,
+        "best_eval_accuracy_epoch": best_top1_epoch,
+        "best_eval_top5_accuracy": round(best_top5, 8) if best_top5 is not None else None,
+        "best_eval_top5_accuracy_epoch": best_top5_epoch,
+        "best_eval_accuracy_raw": round(best_top1_raw, 8) if best_top1_raw is not None else None,
+        "best_eval_accuracy_raw_epoch": best_top1_raw_epoch,
+        "best_eval_top5_accuracy_raw": round(best_top5_raw, 8) if best_top5_raw is not None else None,
+        "best_eval_top5_accuracy_raw_epoch": best_top5_raw_epoch,
         "training_time_sec": round(total_training_time, 6),
         "evaluation_time_sec": round(total_eval_time, 6),
         "analysis_time_sec": round(total_analysis_time, 6),
+        "mean_train_images_per_sec": round(
+            safe_mean([float(row["train_images_per_sec"]) for row in epoch_metrics if row.get("train_images_per_sec") is not None]),
+            6,
+        ),
+        "mean_eval_images_per_sec": round(
+            safe_mean([float(row["eval_images_per_sec"]) for row in epoch_metrics if row.get("eval_images_per_sec") is not None]),
+            6,
+        ),
+        "peak_cuda_memory_allocated_mb": round(
+            max(
+                [float(row["peak_cuda_memory_allocated_mb"]) for row in epoch_metrics if row.get("peak_cuda_memory_allocated_mb") is not None],
+                default=0.0,
+            ),
+            6,
+        )
+        if device.type == "cuda"
+        else None,
+        "peak_cuda_memory_reserved_mb": round(
+            max(
+                [float(row["peak_cuda_memory_reserved_mb"]) for row in epoch_metrics if row.get("peak_cuda_memory_reserved_mb") is not None],
+                default=0.0,
+            ),
+            6,
+        )
+        if device.type == "cuda"
+        else None,
+        "parameter_summary": parameter_summary,
+        "attention_theory_summary": attention_theory_summary,
+        "bmb_diagnostics": bmb_diagnostics,
         "task_flops": total_task_flops if instrumentation.get("measure_flops", False) else None,
         "reg_flops": total_reg_flops if instrumentation.get("measure_flops", False) else None,
         "analysis_flops": total_analysis_flops if instrumentation.get("measure_flops", False) else None,

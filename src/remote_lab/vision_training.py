@@ -328,16 +328,18 @@ def format_init_summary(
     total_epochs: int,
     learning_rate: float,
     analysis_time_sec: float,
-    layer_ratios: list[float],
+    layer_ratios: list[float] | None,
 ) -> str:
-    ratios = ", ".join(f"L{i + 1}={value:.4f}" for i, value in enumerate(layer_ratios))
-    return (
+    summary = (
         f"[init_summary] experiment={experiment_name} "
         f"epoch=0/{total_epochs} "
         f"lr={learning_rate:.6e} "
-        f"analysis_sec={analysis_time_sec:.4f} "
-        f"ratios=[{ratios}]"
+        f"analysis_sec={analysis_time_sec:.4f}"
     )
+    if layer_ratios is not None:
+        ratios = ", ".join(f"L{i + 1}={value:.4f}" for i, value in enumerate(layer_ratios))
+        summary += f" ratios=[{ratios}]"
+    return summary
 
 
 def format_epoch_summary(
@@ -355,11 +357,14 @@ def format_epoch_summary(
     eval_accuracy: float | None,
     analysis_time_sec: float,
     reg_enabled: bool,
-    layer_ratios: list[float],
+    layer_ratios: list[float] | None,
+    eval_top5_accuracy: float | None = None,
+    train_images_per_sec: float | None = None,
+    eval_images_per_sec: float | None = None,
+    peak_memory_mb: float | None = None,
 ) -> str:
-    ratios = ", ".join(f"L{i + 1}={value:.4f}" for i, value in enumerate(layer_ratios))
     reg_text = "n/a" if reg_loss is None else f"{reg_loss:.6f}"
-    return (
+    summary = (
         f"[epoch_summary] experiment={experiment_name} "
         f"epoch={epoch}/{total_epochs} "
         f"total_loss={total_loss:.6f} "
@@ -371,9 +376,16 @@ def format_epoch_summary(
         f"eval_sec={'n/a' if eval_time_sec is None else f'{eval_time_sec:.2f}'} "
         f"eval_loss={'n/a' if eval_loss is None else f'{eval_loss:.6f}'} "
         f"eval_acc={'n/a' if eval_accuracy is None else f'{eval_accuracy:.4f}'} "
-        f"analysis_sec={analysis_time_sec:.4f} "
-        f"ratios=[{ratios}]"
+        f"eval_top5={'n/a' if eval_top5_accuracy is None else f'{eval_top5_accuracy:.4f}'} "
+        f"train_img_s={'n/a' if train_images_per_sec is None else f'{train_images_per_sec:.2f}'} "
+        f"eval_img_s={'n/a' if eval_images_per_sec is None else f'{eval_images_per_sec:.2f}'} "
+        f"peak_mem_mb={'n/a' if peak_memory_mb is None else f'{peak_memory_mb:.1f}'} "
+        f"analysis_sec={analysis_time_sec:.4f}"
     )
+    if layer_ratios is not None:
+        ratios = ", ".join(f"L{i + 1}={value:.4f}" for i, value in enumerate(layer_ratios))
+        summary += f" ratios=[{ratios}]"
+    return summary
 
 
 def evaluate_model(

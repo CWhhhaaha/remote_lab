@@ -59,6 +59,7 @@
   "instrumentation": {
     "measure_training_time": true,
     "measure_flops": true,
+    "measure_layer_ratios": false,
     "exclude_analysis_time": true,
     "exclude_analysis_flops": true
   }
