@@ -19,6 +19,7 @@ from torchvision import datasets, transforms
 from tqdm.auto import tqdm
 from transformers import ViTConfig, ViTForImageClassification
 
+from remote_lab.layer_bbt_attention import apply_layer_bbt_attention
 from remote_lab.layer_symmetric_latent_attention import apply_layer_symmetric_latent_attention
 from remote_lab.layer_uv_latent_attention import apply_layer_uv_latent_attention
 
@@ -108,14 +109,31 @@ def build_vit_model(model_config: dict[str, Any], num_classes: int) -> ViTForIma
         model = apply_layer_symmetric_latent_attention(model, model_config)
     elif str(model_config.get("attention_variant", "standard")) == "layer_uv_latent":
         model = apply_layer_uv_latent_attention(model, model_config)
+    elif str(model_config.get("attention_variant", "standard")) == "layer_bbt":
+        model = apply_layer_bbt_attention(model, model_config)
     return model
 
 
-def iter_attention_layers(model: ViTForImageClassification) -> Iterable[Any]:
-    return model.vit.encoder.layer
+def unwrap_model(model: nn.Module) -> nn.Module:
+    return model.module if isinstance(model, nn.DataParallel) else model
 
 
-def apply_symmetric_query_key_initialization(model: ViTForImageClassification) -> None:
+def visible_cuda_device_count() -> int:
+    return torch.cuda.device_count() if torch.cuda.is_available() else 1
+
+
+def maybe_wrap_data_parallel(model: nn.Module, device: torch.device) -> nn.Module:
+    if device.type == "cuda" and visible_cuda_device_count() > 1:
+        return nn.DataParallel(model)
+    return model
+
+
+def iter_attention_layers(model: nn.Module) -> Iterable[Any]:
+    base_model = unwrap_model(model)
+    return base_model.vit.encoder.layer
+
+
+def apply_symmetric_query_key_initialization(model: nn.Module) -> None:
     with torch.no_grad():
         for layer in iter_attention_layers(model):
             attention = layer.attention.attention
@@ -134,7 +152,7 @@ def compute_attention_kernel(attention: Any) -> torch.Tensor:
     raise TypeError(f"Unsupported attention module type for kernel extraction: {type(attention)!r}")
 
 
-def compute_layer_asymmetry_ratios(model: ViTForImageClassification) -> list[float]:
+def compute_layer_asymmetry_ratios(model: nn.Module) -> list[float]:
     ratios: list[float] = []
     with torch.no_grad():
         for layer in iter_attention_layers(model):
@@ -148,7 +166,7 @@ def compute_layer_asymmetry_ratios(model: ViTForImageClassification) -> list[flo
 
 
 def compute_reg_loss(
-    model: ViTForImageClassification,
+    model: nn.Module,
     intervals: list[dict[str, float]],
     penalty: str = "linear_hinge",
 ) -> tuple[torch.Tensor, list[float]]:
@@ -186,23 +204,29 @@ def count_analysis_flops(hidden_size: int, num_layers: int) -> int:
     return count_reg_flops(hidden_size, num_layers)
 
 
-def estimate_model_flops(model: ViTForImageClassification, batch: dict[str, torch.Tensor]) -> tuple[int | None, str]:
+def estimate_model_flops(model: nn.Module, batch: dict[str, torch.Tensor]) -> tuple[int | None, str]:
     try:
-        flops = model.floating_point_ops(batch)
+        flops = unwrap_model(model).floating_point_ops(batch)
     except Exception:
         return None, "unavailable"
     return int(flops), "transformers.floating_point_ops"
 
 
+def resolve_global_batch_size(training_config: dict[str, Any], replica_count: int) -> int:
+    per_device_batch_size = int(training_config["per_device_batch_size"])
+    return per_device_batch_size * max(int(replica_count), 1)
+
+
 def build_cifar10_loaders(
     dataset_config: dict[str, Any],
     training_config: dict[str, Any],
+    replica_count: int = 1,
 ) -> tuple[DataLoader, DataLoader]:
     image_size = int(dataset_config.get("image_size", 32))
     mean = tuple(float(x) for x in dataset_config.get("mean", [0.4914, 0.4822, 0.4465]))
     std = tuple(float(x) for x in dataset_config.get("std", [0.2470, 0.2435, 0.2616]))
     data_root = Path(dataset_config["resolved_paths"]["data_root"])
-    per_device_batch_size = int(training_config["per_device_batch_size"])
+    batch_size = resolve_global_batch_size(training_config, replica_count)
     num_workers = resolve_num_workers(training_config)
 
     train_transform = transforms.Compose(
@@ -225,7 +249,7 @@ def build_cifar10_loaders(
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=per_device_batch_size,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -233,7 +257,7 @@ def build_cifar10_loaders(
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=per_device_batch_size,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -265,12 +289,13 @@ def resolve_imagefolder_split_dirs(dataset_config: dict[str, Any]) -> tuple[Path
 def build_imagenet1k_loaders(
     dataset_config: dict[str, Any],
     training_config: dict[str, Any],
+    replica_count: int = 1,
 ) -> tuple[DataLoader, DataLoader]:
     image_size = int(dataset_config.get("image_size", 224))
     eval_resize_size = int(dataset_config.get("eval_resize_size", round(image_size / 0.875)))
     mean = tuple(float(x) for x in dataset_config.get("mean", [0.485, 0.456, 0.406]))
     std = tuple(float(x) for x in dataset_config.get("std", [0.229, 0.224, 0.225]))
-    per_device_batch_size = int(training_config["per_device_batch_size"])
+    batch_size = resolve_global_batch_size(training_config, replica_count)
     num_workers = resolve_num_workers(training_config)
     train_dir, val_dir = resolve_imagefolder_split_dirs(dataset_config)
 
@@ -296,7 +321,7 @@ def build_imagenet1k_loaders(
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=per_device_batch_size,
+        batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -304,7 +329,7 @@ def build_imagenet1k_loaders(
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=per_device_batch_size,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -316,12 +341,13 @@ def build_imagenet1k_loaders(
 def build_vision_loaders(
     dataset_config: dict[str, Any],
     training_config: dict[str, Any],
+    replica_count: int = 1,
 ) -> tuple[DataLoader, DataLoader]:
     dataset_name = str(dataset_config.get("name", "cifar10")).lower()
     if dataset_name == "cifar10":
-        return build_cifar10_loaders(dataset_config, training_config)
+        return build_cifar10_loaders(dataset_config, training_config, replica_count=replica_count)
     if dataset_name in {"imagenet1k", "imagenet-1k", "imagenet_1k", "imagenet"}:
-        return build_imagenet1k_loaders(dataset_config, training_config)
+        return build_imagenet1k_loaders(dataset_config, training_config, replica_count=replica_count)
     raise ValueError(f"Unsupported vision dataset: {dataset_name}")
 
 
@@ -433,13 +459,15 @@ def train_vision_experiment(
     set_seed(int(config.get("seed", 42)))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    num_cuda_devices = visible_cuda_device_count() if device.type == "cuda" else 1
     num_classes = int(dataset_config.get("num_classes", 10))
     model = build_vit_model(model_config, num_classes=num_classes)
     if config.get("initialization", {}).get("query_key") == "symmetric":
         apply_symmetric_query_key_initialization(model)
     model.to(device)
+    model = maybe_wrap_data_parallel(model, device)
 
-    train_loader, test_loader = build_vision_loaders(dataset_config, training)
+    train_loader, test_loader = build_vision_loaders(dataset_config, training, replica_count=num_cuda_devices)
     per_device_batch_size = int(training["per_device_batch_size"])
     grad_accum_steps = int(training.get("gradient_accumulation_steps", 1))
 
@@ -689,12 +717,14 @@ def train_vision_experiment(
         final_eval_loss, final_eval_accuracy, eval_duration = evaluate_model(model, test_loader, device, eval_criterion)
         total_eval_time += eval_duration
 
-    model.save_pretrained(run_paths.model_dir)
+    unwrap_model(model).save_pretrained(run_paths.model_dir)
 
     metrics = {
         "experiment_name": config.get("experiment_name"),
         "device": str(device),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "num_cuda_devices": num_cuda_devices,
+        "data_parallel_enabled": bool(device.type == "cuda" and num_cuda_devices > 1),
         "dataset_name": dataset_config.get("name"),
         "epochs": int(training["max_epochs"]),
         "global_microbatches": global_microbatches,

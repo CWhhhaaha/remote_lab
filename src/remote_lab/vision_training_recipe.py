@@ -29,10 +29,13 @@ from remote_lab.vision_training import (
     format_epoch_summary,
     format_init_summary,
     maybe_sync,
+    maybe_wrap_data_parallel,
     prepare_run_paths,
     regularization_active,
     safe_mean,
     set_seed,
+    unwrap_model,
+    visible_cuda_device_count,
     write_json,
 )
 
@@ -165,19 +168,26 @@ def current_cuda_peak_memory(device: torch.device) -> dict[str, float | None]:
             "peak_cuda_memory_allocated_mb": None,
             "peak_cuda_memory_reserved_mb": None,
         }
+    device_count = visible_cuda_device_count()
+    allocated_values = [bytes_to_mb(torch.cuda.max_memory_allocated(idx)) for idx in range(device_count)]
+    reserved_values = [bytes_to_mb(torch.cuda.max_memory_reserved(idx)) for idx in range(device_count)]
+    allocated_values = [value for value in allocated_values if value is not None]
+    reserved_values = [value for value in reserved_values if value is not None]
     return {
-        "peak_cuda_memory_allocated_mb": bytes_to_mb(torch.cuda.max_memory_allocated(device)),
-        "peak_cuda_memory_reserved_mb": bytes_to_mb(torch.cuda.max_memory_reserved(device)),
+        "peak_cuda_memory_allocated_mb": max(allocated_values) if allocated_values else None,
+        "peak_cuda_memory_reserved_mb": max(reserved_values) if reserved_values else None,
     }
 
 
 def count_attention_parameters(model: ViTForImageClassification) -> int:
-    return sum(param.numel() for name, param in model.named_parameters() if ".attention." in name)
+    base_model = unwrap_model(model)
+    return sum(param.numel() for name, param in base_model.named_parameters() if ".attention." in name)
 
 
 def count_qk_score_parameters(model: ViTForImageClassification) -> int:
+    base_model = unwrap_model(model)
     total = 0
-    for layer in model.vit.encoder.layer:
+    for layer in base_model.vit.encoder.layer:
         attention = layer.attention.attention
         if hasattr(attention, "query") and hasattr(attention, "key"):
             total += sum(param.numel() for param in attention.query.parameters())
@@ -229,6 +239,20 @@ def theoretical_attention_summary(model_config: dict[str, Any]) -> dict[str, flo
             2 * tokens * hidden_size * latent_rank
             + 4 * num_heads * tokens * latent_rank * latent_factor_rank
             + 2 * num_heads * tokens * tokens * latent_factor_rank
+        )
+        attention_flops_per_layer = (
+            qk_flops_per_layer
+            + 4 * tokens * hidden_size * hidden_size
+            + 2 * tokens * tokens * hidden_size
+        )
+    elif variant == "layer_bbt":
+        latent_rank = int(model_config["latent_rank"])
+        latent_factor_rank = latent_rank
+        qk_params_per_layer = hidden_size * latent_rank
+        attention_params_per_layer = qk_params_per_layer + 2 * hidden_size * hidden_size
+        qk_flops_per_layer = (
+            2 * tokens * hidden_size * latent_rank
+            + 2 * num_heads * tokens * tokens * latent_rank
         )
         attention_flops_per_layer = (
             qk_flops_per_layer
@@ -318,7 +342,8 @@ def summarize_bmb_diagnostics(model: ViTForImageClassification) -> dict[str, Any
     head_cos_values: list[float] = []
 
     with torch.no_grad():
-        for layer_idx, layer in enumerate(model.vit.encoder.layer, start=1):
+        base_model = unwrap_model(model)
+        for layer_idx, layer in enumerate(base_model.vit.encoder.layer, start=1):
             attention = layer.attention.attention
             if not hasattr(attention, "basis") or not hasattr(attention, "head_matrices"):
                 continue
@@ -391,13 +416,15 @@ def train_vision_recipe_experiment(
     set_seed(int(config.get("seed", 42)))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    num_cuda_devices = visible_cuda_device_count() if device.type == "cuda" else 1
     num_classes = int(dataset_config.get("num_classes", 10))
     model = build_vit_model(model_config, num_classes=num_classes)
     if config.get("initialization", {}).get("query_key") == "symmetric":
         apply_symmetric_query_key_initialization(model)
     model.to(device)
+    model = maybe_wrap_data_parallel(model, device)
 
-    train_loader, test_loader = build_vision_loaders(dataset_config, training)
+    train_loader, test_loader = build_vision_loaders(dataset_config, training, replica_count=num_cuda_devices)
     train_dataset_size = len(train_loader.dataset)
     eval_dataset_size = len(test_loader.dataset)
     grad_accum_steps = int(training.get("gradient_accumulation_steps", 1))
@@ -778,7 +805,7 @@ def train_vision_recipe_experiment(
     best_top1_raw, best_top1_raw_epoch = best_metric(epoch_metrics, "eval_accuracy_raw")
     best_top5_raw, best_top5_raw_epoch = best_metric(epoch_metrics, "eval_top5_accuracy_raw")
     bmb_diagnostics = summarize_bmb_diagnostics(model)
-    model.save_pretrained(run_paths.model_dir)
+    unwrap_model(model).save_pretrained(run_paths.model_dir)
     if ema_model is not None:
         ema_model.module.save_pretrained(run_paths.model_dir / "ema")
 
@@ -786,6 +813,8 @@ def train_vision_recipe_experiment(
         "experiment_name": config.get("experiment_name"),
         "device": str(device),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "num_cuda_devices": num_cuda_devices,
+        "data_parallel_enabled": bool(device.type == "cuda" and num_cuda_devices > 1),
         "dataset_name": dataset_config.get("name"),
         "epochs": int(training["max_epochs"]),
         "global_microbatches": global_microbatches,
