@@ -110,6 +110,10 @@ def main() -> None:
         from remote_lab.layer_symmetric_latent_attention import summarize_layer_symmetric_latent_attention
 
         attention_summary = summarize_layer_symmetric_latent_attention(model)
+    elif str(model.get("attention_variant", "standard")) == "layer_uv_latent":
+        from remote_lab.layer_uv_latent_attention import summarize_layer_uv_latent_attention
+
+        attention_summary = summarize_layer_uv_latent_attention(model)
 
     if not args.dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)

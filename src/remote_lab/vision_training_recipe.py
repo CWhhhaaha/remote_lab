@@ -183,7 +183,7 @@ def count_qk_score_parameters(model: ViTForImageClassification) -> int:
             total += sum(param.numel() for param in attention.query.parameters())
             total += sum(param.numel() for param in attention.key.parameters())
         else:
-            for attr in ("basis", "core", "head_residual"):
+            for attr in ("basis", "core", "head_residual", "u_factor", "v_factor"):
                 module_or_param = getattr(attention, attr, None)
                 if module_or_param is None:
                     continue
@@ -211,6 +211,7 @@ def theoretical_attention_summary(model_config: dict[str, Any]) -> dict[str, flo
 
     if variant == "layer_symmetric_latent":
         latent_rank = int(model_config["latent_rank"])
+        latent_factor_rank = latent_rank
         qk_params_per_layer = hidden_size * latent_rank + (num_heads + 1) * latent_rank * latent_rank
         attention_params_per_layer = qk_params_per_layer + 2 * hidden_size * hidden_size
         qk_flops_per_layer = (
@@ -219,8 +220,24 @@ def theoretical_attention_summary(model_config: dict[str, Any]) -> dict[str, flo
             + 2 * num_heads * tokens * tokens * latent_rank
         )
         attention_flops_per_layer = qk_flops_per_layer + 4 * tokens * hidden_size * hidden_size + 2 * tokens * tokens * hidden_size
+    elif variant == "layer_uv_latent":
+        latent_rank = int(model_config["latent_rank"])
+        latent_factor_rank = int(model_config.get("latent_factor_rank", latent_rank))
+        qk_params_per_layer = hidden_size * latent_rank + 2 * num_heads * latent_rank * latent_factor_rank
+        attention_params_per_layer = qk_params_per_layer + 2 * hidden_size * hidden_size
+        qk_flops_per_layer = (
+            2 * tokens * hidden_size * latent_rank
+            + 4 * num_heads * tokens * latent_rank * latent_factor_rank
+            + 2 * num_heads * tokens * tokens * latent_factor_rank
+        )
+        attention_flops_per_layer = (
+            qk_flops_per_layer
+            + 4 * tokens * hidden_size * hidden_size
+            + 2 * tokens * tokens * hidden_size
+        )
     else:
         latent_rank = None
+        latent_factor_rank = None
         qk_params_per_layer = baseline_qk_params_per_layer
         attention_params_per_layer = baseline_attention_params_per_layer
         qk_flops_per_layer = baseline_qk_flops_per_layer
@@ -229,6 +246,7 @@ def theoretical_attention_summary(model_config: dict[str, Any]) -> dict[str, flo
     return {
         "attention_variant": variant,
         "latent_rank": latent_rank,
+        "latent_factor_rank": latent_factor_rank,
         "hidden_size": hidden_size,
         "num_layers": num_layers,
         "num_heads": num_heads,

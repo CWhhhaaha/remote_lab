@@ -20,6 +20,7 @@ from tqdm.auto import tqdm
 from transformers import ViTConfig, ViTForImageClassification
 
 from remote_lab.layer_symmetric_latent_attention import apply_layer_symmetric_latent_attention
+from remote_lab.layer_uv_latent_attention import apply_layer_uv_latent_attention
 
 
 def set_seed(seed: int) -> None:
@@ -105,6 +106,8 @@ def build_vit_model(model_config: dict[str, Any], num_classes: int) -> ViTForIma
     model = ViTForImageClassification(config)
     if str(model_config.get("attention_variant", "standard")) == "layer_symmetric_latent":
         model = apply_layer_symmetric_latent_attention(model, model_config)
+    elif str(model_config.get("attention_variant", "standard")) == "layer_uv_latent":
+        model = apply_layer_uv_latent_attention(model, model_config)
     return model
 
 
