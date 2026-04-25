@@ -1,0 +1,188 @@
+{
+  "experiment_name": "imagenet1k-vit12-bmbuv-recipe-r64-s64-30ep-v1",
+  "device": "cuda",
+  "cuda_visible_devices": "1",
+  "dataset_name": "imagenet1k",
+  "epochs": 30,
+  "global_microbatches": 150150,
+  "global_optimizer_steps": 75090,
+  "final_train_loss": 2.99776514,
+  "final_eval_loss": 1.38849557,
+  "final_eval_accuracy": 0.6928,
+  "final_eval_top5_accuracy": 0.88604,
+  "final_eval_loss_raw": 1.38849557,
+  "final_eval_accuracy_raw": 0.6928,
+  "final_eval_top5_accuracy_raw": 0.88604,
+  "final_eval_loss_ema": null,
+  "final_eval_accuracy_ema": null,
+  "final_eval_top5_accuracy_ema": null,
+  "best_eval_accuracy": 0.6928,
+  "best_eval_accuracy_epoch": 30,
+  "best_eval_top5_accuracy": 0.88604,
+  "best_eval_top5_accuracy_epoch": 30,
+  "best_eval_accuracy_raw": 0.6928,
+  "best_eval_accuracy_raw_epoch": 30,
+  "best_eval_top5_accuracy_raw": 0.88604,
+  "best_eval_top5_accuracy_raw_epoch": 30,
+  "training_time_sec": 36160.209365,
+  "evaluation_time_sec": 2994.464469,
+  "analysis_time_sec": 0.0,
+  "mean_train_images_per_sec": 1063.981604,
+  "mean_eval_images_per_sec": 501.870473,
+  "peak_cuda_memory_allocated_mb": 19440.782227,
+  "peak_cuda_memory_reserved_mb": 21210.0,
+  "parameter_summary": {
+    "total_params": 74162920,
+    "trainable_params": 74162920,
+    "attention_params": 15943680,
+    "qk_score_params": 1769472
+  },
+  "attention_theory_summary": {
+    "attention_variant": "layer_uv_latent",
+    "latent_rank": 64,
+    "latent_factor_rank": 64,
+    "hidden_size": 768,
+    "num_layers": 12,
+    "num_heads": 12,
+    "head_dim": 64,
+    "tokens_per_example": 197,
+    "qk_weight_params_per_layer": 147456,
+    "qk_weight_params_total": 1769472,
+    "baseline_qk_weight_params_total": 14155776,
+    "qk_weight_param_reduction_pct": 87.5,
+    "attention_weight_params_per_layer": 1327104,
+    "attention_weight_params_total": 15925248,
+    "baseline_attention_weight_params_total": 28311552,
+    "attention_weight_param_reduction_pct": 43.75,
+    "qk_flops_per_example_per_layer": 117708288,
+    "qk_flops_per_example_total": 1412499456,
+    "baseline_qk_flops_per_example_total": 6292703232,
+    "qk_flops_reduction_pct": 77.553376,
+    "attention_flops_per_example_per_layer": 642100224,
+    "attention_flops_per_example_total": 7705202688,
+    "baseline_attention_flops_per_example_total": 12585406464,
+    "attention_flops_reduction_pct": 38.776688
+  },
+  "bmb_diagnostics": {
+    "effective_rank_B_final": {
+      "mean": 54.055617,
+      "min": 37.881714,
+      "max": 60.988327
+    },
+    "effective_rank_M_final": {
+      "mean": 15.063941,
+      "min": 4.312951,
+      "max": 27.602146
+    },
+    "head_M_cosine_similarity_final": {
+      "mean": 0.149335,
+      "min": 0.034352,
+      "max": 0.259936
+    },
+    "per_layer": [
+      {
+        "layer": 1,
+        "effective_rank_B": 43.982445,
+        "effective_rank_M_mean": 9.321196,
+        "effective_rank_M_min": 7.623134,
+        "effective_rank_M_max": 13.584891,
+        "head_M_cosine_similarity_mean": 0.034352
+      },
+      {
+        "layer": 2,
+        "effective_rank_B": 55.102802,
+        "effective_rank_M_mean": 19.393154,
+        "effective_rank_M_min": 15.834579,
+        "effective_rank_M_max": 25.888971,
+        "head_M_cosine_similarity_mean": 0.168442
+      },
+      {
+        "layer": 3,
+        "effective_rank_B": 60.988327,
+        "effective_rank_M_mean": 23.497265,
+        "effective_rank_M_min": 19.683485,
+        "effective_rank_M_max": 27.602146,
+        "head_M_cosine_similarity_mean": 0.153079
+      },
+      {
+        "layer": 4,
+        "effective_rank_B": 60.883114,
+        "effective_rank_M_mean": 21.258785,
+        "effective_rank_M_min": 16.75914,
+        "effective_rank_M_max": 26.246843,
+        "head_M_cosine_similarity_mean": 0.134298
+      },
+      {
+        "layer": 5,
+        "effective_rank_B": 57.701191,
+        "effective_rank_M_mean": 16.130902,
+        "effective_rank_M_min": 12.783982,
+        "effective_rank_M_max": 22.134151,
+        "head_M_cosine_similarity_mean": 0.203629
+      },
+      {
+        "layer": 6,
+        "effective_rank_B": 55.59409,
+        "effective_rank_M_mean": 15.084465,
+        "effective_rank_M_min": 12.764235,
+        "effective_rank_M_max": 19.405918,
+        "head_M_cosine_similarity_mean": 0.120696
+      },
+      {
+        "layer": 7,
+        "effective_rank_B": 54.483578,
+        "effective_rank_M_mean": 12.663876,
+        "effective_rank_M_min": 11.447857,
+        "effective_rank_M_max": 14.279769,
+        "head_M_cosine_similarity_mean": 0.126838
+      },
+      {
+        "layer": 8,
+        "effective_rank_B": 55.010967,
+        "effective_rank_M_mean": 13.031208,
+        "effective_rank_M_min": 11.427631,
+        "effective_rank_M_max": 14.165977,
+        "head_M_cosine_similarity_mean": 0.131532
+      },
+      {
+        "layer": 9,
+        "effective_rank_B": 54.96537,
+        "effective_rank_M_mean": 13.552126,
+        "effective_rank_M_min": 11.453404,
+        "effective_rank_M_max": 15.584641,
+        "head_M_cosine_similarity_mean": 0.176686
+      },
+      {
+        "layer": 10,
+        "effective_rank_B": 54.96191,
+        "effective_rank_M_mean": 12.583181,
+        "effective_rank_M_min": 9.89505,
+        "effective_rank_M_max": 13.708277,
+        "head_M_cosine_similarity_mean": 0.152657
+      },
+      {
+        "layer": 11,
+        "effective_rank_B": 37.881714,
+        "effective_rank_M_mean": 5.728035,
+        "effective_rank_M_min": 4.312951,
+        "effective_rank_M_max": 7.046923,
+        "head_M_cosine_similarity_mean": 0.129876
+      },
+      {
+        "layer": 12,
+        "effective_rank_B": 57.1119,
+        "effective_rank_M_mean": 18.523105,
+        "effective_rank_M_min": 16.716173,
+        "effective_rank_M_max": 20.653444,
+        "head_M_cosine_similarity_mean": 0.259936
+      }
+    ]
+  },
+  "task_flops": 0,
+  "reg_flops": 0,
+  "analysis_flops": 0,
+  "reported_training_flops": 0,
+  "reported_training_time_sec": 36160.20936467312,
+  "flops_estimation_method": "unavailable",
+  "ema_enabled": false
+}

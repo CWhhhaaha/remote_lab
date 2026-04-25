@@ -1,0 +1,190 @@
+{
+  "experiment_name": "imagenet1k-vit12-bbt-recipe-r64-30ep-v1",
+  "device": "cuda",
+  "cuda_visible_devices": "0",
+  "num_cuda_devices": 1,
+  "data_parallel_enabled": false,
+  "dataset_name": "imagenet1k",
+  "epochs": 30,
+  "global_microbatches": 150150,
+  "global_optimizer_steps": 75090,
+  "final_train_loss": 3.19508721,
+  "final_eval_loss": 1.46789263,
+  "final_eval_accuracy": 0.67364,
+  "final_eval_top5_accuracy": 0.87444,
+  "final_eval_loss_raw": 1.46789263,
+  "final_eval_accuracy_raw": 0.67364,
+  "final_eval_top5_accuracy_raw": 0.87444,
+  "final_eval_loss_ema": null,
+  "final_eval_accuracy_ema": null,
+  "final_eval_top5_accuracy_ema": null,
+  "best_eval_accuracy": 0.67364,
+  "best_eval_accuracy_epoch": 30,
+  "best_eval_top5_accuracy": 0.87444,
+  "best_eval_top5_accuracy_epoch": 30,
+  "best_eval_accuracy_raw": 0.67364,
+  "best_eval_accuracy_raw_epoch": 30,
+  "best_eval_top5_accuracy_raw": 0.87444,
+  "best_eval_top5_accuracy_raw_epoch": 30,
+  "training_time_sec": 40475.603161,
+  "evaluation_time_sec": 3382.981261,
+  "analysis_time_sec": 0.0,
+  "mean_train_images_per_sec": 957.469473,
+  "mean_eval_images_per_sec": 448.722188,
+  "peak_cuda_memory_allocated_mb": 17642.469727,
+  "peak_cuda_memory_reserved_mb": 19276.0,
+  "parameter_summary": {
+    "total_params": 72983272,
+    "trainable_params": 72983272,
+    "attention_params": 14764032,
+    "qk_score_params": 589824
+  },
+  "attention_theory_summary": {
+    "attention_variant": "layer_bbt",
+    "latent_rank": 64,
+    "latent_factor_rank": 64,
+    "hidden_size": 768,
+    "num_layers": 12,
+    "num_heads": 12,
+    "head_dim": 64,
+    "tokens_per_example": 197,
+    "qk_weight_params_per_layer": 49152,
+    "qk_weight_params_total": 589824,
+    "baseline_qk_weight_params_total": 14155776,
+    "qk_weight_param_reduction_pct": 95.833333,
+    "attention_weight_params_per_layer": 1228800,
+    "attention_weight_params_total": 14745600,
+    "baseline_attention_weight_params_total": 28311552,
+    "attention_weight_param_reduction_pct": 47.916667,
+    "qk_flops_per_example_per_layer": 78976512,
+    "qk_flops_per_example_total": 947718144,
+    "baseline_qk_flops_per_example_total": 6292703232,
+    "qk_flops_reduction_pct": 84.939411,
+    "attention_flops_per_example_per_layer": 603368448,
+    "attention_flops_per_example_total": 7240421376,
+    "baseline_attention_flops_per_example_total": 12585406464,
+    "attention_flops_reduction_pct": 42.469706
+  },
+  "bmb_diagnostics": {
+    "effective_rank_B_final": {
+      "mean": 48.066586,
+      "min": 37.291096,
+      "max": 54.934216
+    },
+    "effective_rank_M_final": {
+      "mean": 63.999969,
+      "min": 63.999969,
+      "max": 63.999969
+    },
+    "head_M_cosine_similarity_final": {
+      "mean": 1.0,
+      "min": 1.0,
+      "max": 1.0
+    },
+    "per_layer": [
+      {
+        "layer": 1,
+        "effective_rank_B": 37.291096,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 2,
+        "effective_rank_B": 50.450954,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 3,
+        "effective_rank_B": 45.457203,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 4,
+        "effective_rank_B": 44.920036,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 5,
+        "effective_rank_B": 47.871429,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 6,
+        "effective_rank_B": 47.231705,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 7,
+        "effective_rank_B": 47.308815,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 8,
+        "effective_rank_B": 45.860729,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 9,
+        "effective_rank_B": 48.945526,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 10,
+        "effective_rank_B": 51.834637,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 11,
+        "effective_rank_B": 54.934216,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      },
+      {
+        "layer": 12,
+        "effective_rank_B": 54.692684,
+        "effective_rank_M_mean": 63.999969,
+        "effective_rank_M_min": 63.999969,
+        "effective_rank_M_max": 63.999969,
+        "head_M_cosine_similarity_mean": 1.0
+      }
+    ]
+  },
+  "task_flops": 0,
+  "reg_flops": 0,
+  "analysis_flops": 0,
+  "reported_training_flops": 0,
+  "reported_training_time_sec": 40475.603160541505,
+  "flops_estimation_method": "unavailable",
+  "ema_enabled": false
+}
