@@ -106,18 +106,31 @@ def main() -> None:
     dataset_paths = resolve_dataset_paths(project_root, config)
     model = config.get("model", {}) if isinstance(config.get("model"), dict) else {}
     attention_summary = None
-    if str(model.get("attention_variant", "standard")) == "layer_symmetric_latent":
+    variant = str(model.get("attention_variant", "standard"))
+    if variant == "layer_symmetric_latent":
         from remote_lab.layer_symmetric_latent_attention import summarize_layer_symmetric_latent_attention
 
         attention_summary = summarize_layer_symmetric_latent_attention(model)
-    elif str(model.get("attention_variant", "standard")) == "layer_bbt":
+    elif variant == "layer_bbt":
         from remote_lab.layer_bbt_attention import summarize_layer_bbt_attention
 
         attention_summary = summarize_layer_bbt_attention(model)
-    elif str(model.get("attention_variant", "standard")) == "layer_uv_latent":
+    elif variant == "layer_uv_latent":
         from remote_lab.layer_uv_latent_attention import summarize_layer_uv_latent_attention
 
         attention_summary = summarize_layer_uv_latent_attention(model)
+    elif variant == "layer_fully_shared":
+        from remote_lab.layer_fully_shared_attention import summarize_layer_fully_shared_attention
+
+        attention_summary = summarize_layer_fully_shared_attention(model)
+    elif variant == "layer_partial_shared":
+        from remote_lab.layer_partial_shared_attention import summarize_layer_partial_shared_attention
+
+        attention_summary = summarize_layer_partial_shared_attention(model)
+    elif variant == "layer_lowrank":
+        from remote_lab.layer_lowrank_attention import summarize_layer_lowrank_attention
+
+        attention_summary = summarize_layer_lowrank_attention(model)
 
     if not args.dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)

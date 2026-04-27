@@ -20,6 +20,9 @@ from tqdm.auto import tqdm
 from transformers import ViTConfig, ViTForImageClassification
 
 from remote_lab.layer_bbt_attention import apply_layer_bbt_attention
+from remote_lab.layer_fully_shared_attention import apply_layer_fully_shared_attention
+from remote_lab.layer_lowrank_attention import apply_layer_lowrank_attention
+from remote_lab.layer_partial_shared_attention import apply_layer_partial_shared_attention
 from remote_lab.layer_symmetric_latent_attention import apply_layer_symmetric_latent_attention
 from remote_lab.layer_uv_latent_attention import apply_layer_uv_latent_attention
 
@@ -105,12 +108,19 @@ def build_vit_model(model_config: dict[str, Any], num_classes: int) -> ViTForIma
         qkv_bias=True,
     )
     model = ViTForImageClassification(config)
-    if str(model_config.get("attention_variant", "standard")) == "layer_symmetric_latent":
+    variant = str(model_config.get("attention_variant", "standard"))
+    if variant == "layer_symmetric_latent":
         model = apply_layer_symmetric_latent_attention(model, model_config)
-    elif str(model_config.get("attention_variant", "standard")) == "layer_uv_latent":
+    elif variant == "layer_uv_latent":
         model = apply_layer_uv_latent_attention(model, model_config)
-    elif str(model_config.get("attention_variant", "standard")) == "layer_bbt":
+    elif variant == "layer_bbt":
         model = apply_layer_bbt_attention(model, model_config)
+    elif variant == "layer_fully_shared":
+        model = apply_layer_fully_shared_attention(model, model_config)
+    elif variant == "layer_partial_shared":
+        model = apply_layer_partial_shared_attention(model, model_config)
+    elif variant == "layer_lowrank":
+        model = apply_layer_lowrank_attention(model, model_config)
     return model
 
 
