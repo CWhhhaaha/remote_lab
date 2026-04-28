@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -179,24 +180,28 @@ RUN_DIRS = {
 
 
 def main() -> None:
-    out_dir = Path("reports/imagenet_total_comparison/rank_analysis")
+    base = Path(os.path.expanduser("~/remote_lab"))
+    out_dir = base / "reports/imagenet_total_comparison/rank_analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
     all_results = {}
     for name, analyzer in RUN_ANALYZERS.items():
-        run_dir = RUN_DIRS[name]
-        model_file = Path(run_dir) / "model" / "model.safetensors"
+        run_dir = base / RUN_DIRS[name]
+        model_file = run_dir / "model" / "model.safetensors"
+        print(f"Checking {name}: {model_file} ... exists={model_file.exists()}")
         if not model_file.exists():
-            print(f"Skipping {name}: {model_file} not found")
+            print(f"  Skipping {name}: {model_file} not found")
             continue
-        print(f"Analyzing {name} ...")
+        print(f"  Analyzing {name} ...")
         try:
-            results = analyzer(run_dir)
+            results = analyzer(str(run_dir))
             all_results[name] = results
             safe_name = name.replace(" ", "_").replace("$", "").replace("=", "_")
             with open(out_dir / f"{safe_name}.json", "w") as f:
                 json.dump(results, f, indent=2)
         except Exception as e:
-            print(f"Error analyzing {name}: {e}")
+            print(f"  Error analyzing {name}: {e}")
+            import traceback
+            traceback.print_exc()
     with open(out_dir / "all_ranks.json", "w") as f:
         json.dump(all_results, f, indent=2)
     print(f"\nDone! Results saved to {out_dir}")
