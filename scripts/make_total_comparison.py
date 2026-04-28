@@ -13,6 +13,18 @@ ROOT = Path("reports/imagenet_total_comparison")
 FIG_ROOT = ROOT / "figures"
 TABLE_ROOT = ROOT / "tables"
 
+# Correct QK parameters computed from source code (ViT-B/16, 12 layers)
+QK_PARAMS = {
+    "Baseline": 14155776,
+    "BMB $r$=64": 1228800,
+    "BBT $r$=64": 589824,
+    "BMB-UV $r$=64,$s$=64": 1769472,
+    "FullyShared": 7077888,
+    "LowRank $r$=32": 7667712,
+    "BMB-UV $r$=32,$s$=32": 589824,
+    "PartialShared $r$=48": 4423680,
+}
+
 RUNS = {
     "Baseline": {
         "dir": "runs/imagenet1k_vit12_baseline_recipe_30ep_gpu5",
@@ -115,16 +127,15 @@ def metric_series(rows: list[dict], key: str) -> tuple[np.ndarray, np.ndarray]:
 
 
 # ------------------------------------------------------------------
-# Figure A: Accuracy vs. Parameters
+# Figure A: Accuracy vs. QK Parameters
 # ------------------------------------------------------------------
-def plot_accuracy_vs_params() -> None:
+def plot_accuracy_vs_qk_params() -> None:
     fig, ax = plt.subplots(figsize=(9, 6))
 
     for name, meta in RUNS.items():
         run = load_run(meta["dir"])
         m = run["metrics"]
-        p = m["parameter_summary"]
-        x = m["attention_theory_summary"]["qk_weight_params_total"] / 1e6
+        x = QK_PARAMS[name] / 1e6
         y = m["final_eval_accuracy"] * 100.0
         ax.scatter(
             x, y, color=meta["color"], marker=meta["marker"], s=150, zorder=3
@@ -139,9 +150,9 @@ def plot_accuracy_vs_params() -> None:
 
     ax.set_xlabel("QK Path Parameters (M)")
     ax.set_ylabel("Final Top-1 Accuracy (%)")
-    ax.set_title("Accuracy vs. QK Param Size Trade-off (ImageNet-1K, 30 Epochs)")
-    fig.savefig(FIG_ROOT / "figA_accuracy_vs_params.pdf", bbox_inches="tight")
-    fig.savefig(FIG_ROOT / "figA_accuracy_vs_params.png", bbox_inches="tight")
+    ax.set_title("Accuracy vs. QK Parameter Size Trade-off (ImageNet-1K, 30 Epochs)")
+    fig.savefig(FIG_ROOT / "figA_accuracy_vs_qk_params.pdf", bbox_inches="tight")
+    fig.savefig(FIG_ROOT / "figA_accuracy_vs_qk_params.png", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -187,7 +198,7 @@ def make_main_table() -> None:
     lines = [
         r"\begin{tabular}{lcccccc}",
         r"\toprule",
-        r"Method & Params (M) $\downarrow$ & Attn Params (M) $\downarrow$ & Final Top-1 (\%) $\uparrow$ & Best Top-1 (\%) $\uparrow$ & Final Top-5 (\%) $\uparrow$ & Final Loss $\downarrow$ \\",
+        r"Method & QK Params (M) $\downarrow$ & Attn Params (M) $\downarrow$ & Final Top-1 (\%) $\uparrow$ & Best Top-1 (\%) $\uparrow$ & Final Top-5 (\%) $\uparrow$ & Final Loss $\downarrow$ \\",
         r"\midrule",
     ]
     baseline = None
@@ -205,7 +216,7 @@ def make_main_table() -> None:
             dloss = m["final_eval_loss"] - baseline[1]
             delta_loss = f" ({dloss:+.4f})"
         lines.append(
-            f"{meta['short']} & {p['total_params']/1e6:.2f} & {p['attention_params']/1e6:.2f} & "
+            f"{meta['short']} & {QK_PARAMS[name]/1e6:.2f} & {p['attention_params']/1e6:.2f} & "
             f"{m['final_eval_accuracy']*100:.2f}{delta_top1} & {m['best_eval_accuracy']*100:.2f} & "
             f"{m['final_eval_top5_accuracy']*100:.2f} & {m['final_eval_loss']:.4f}{delta_loss} \\"
         )
@@ -218,8 +229,8 @@ def main() -> None:
     TABLE_ROOT.mkdir(parents=True, exist_ok=True)
     setup_plotting()
 
-    print("Plotting Figure A: Accuracy vs. Parameters ...")
-    plot_accuracy_vs_params()
+    print("Plotting Figure A: Accuracy vs. QK Parameters ...")
+    plot_accuracy_vs_qk_params()
 
     print("Plotting Figure B: Learning Curves ...")
     plot_learning_curves()
