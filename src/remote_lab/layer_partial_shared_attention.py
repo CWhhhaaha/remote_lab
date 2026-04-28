@@ -157,7 +157,7 @@ def summarize_layer_partial_shared_attention(model_config: dict[str, Any]) -> di
     per_layer_qk_params_baseline = 2 * hidden_size * hidden_size
     # Share: 2 sides * d * r_s
     # Priv: 2 sides * H * d * r_p
-    per_layer_qk_params_variant = 2 * hidden_size * shared_qk_dim + 2 * num_heads * hidden_size * private_qk_dim
+    per_layer_qk_params_variant = hidden_size * num_heads * shared_qk_dim + 2 * hidden_size * num_heads * private_qk_dim
 
     qk_flops_baseline = (
         4 * tokens * hidden_size * hidden_size
