@@ -123,6 +123,15 @@ RAW_SEARCH_ROOTS = (
 )
 
 
+# Some methods had inconsistent QK summaries across earlier metrics exports.
+# For scatter-plot fairness, we trust these explicit architecture-level totals.
+QK_PARAMS_CORRECTED = {
+    "FullyShared": 7077888,
+    "LowRank $r$=32": 7667712,
+    "PartialShared $r$=48": 8847360,
+}
+
+
 def setup_plotting() -> None:
     plt.rcParams.update(
         {
@@ -161,6 +170,8 @@ def resolve_run_dir(spec: RunSpec) -> Path | None:
 
 
 def qk_param_total(metrics: dict, spec: RunSpec) -> int:
+    if spec.label in QK_PARAMS_CORRECTED:
+        return int(QK_PARAMS_CORRECTED[spec.label])
     theory = metrics.get("attention_theory_summary", {})
     params = metrics.get("parameter_summary", {})
     for key in ("qk_weight_params_total", "qk_score_params"):
@@ -251,8 +262,10 @@ def plot_learning_curves(runs: list[dict]) -> None:
                 color=spec.color,
                 linestyle=spec.linestyle,
                 marker=spec.marker,
-                markersize=3.6,
-                linewidth=1.9,
+                markersize=2.4,
+                markevery=3,
+                linewidth=1.35,
+                alpha=0.95,
                 label=spec.short,
             )
         ax.set_title(title)
