@@ -206,17 +206,21 @@ def make_main_table() -> None:
 
 def plot_rank_analysis() -> None:
     rank_dir = Path("reports/imagenet_total_comparison/rank_analysis")
-    if not (rank_dir / "all_ranks.json").exists():
-        print("Rank analysis data not found. Skipping rank plot.")
-        return
-    with open(rank_dir / "all_ranks.json") as f:
-        all_ranks = json.load(f)
+    all_ranks = {}
+    if (rank_dir / "all_ranks.json").exists():
+        with open(rank_dir / "all_ranks.json") as f:
+            all_ranks = json.load(f)
+
+    # Load BMB diagnostics directly from metrics.json (as in original paper)
     bmb_diagnostics = []
     bmb_metrics_path = Path("runs/imagenet1k_vit12_bmb_recipe_r64_30ep_gpu7/metrics.json")
     if bmb_metrics_path.exists():
         bmb_m = json.load(bmb_metrics_path.open())
         bmb_diagnostics = bmb_m.get("bmb_diagnostics", {}).get("per_layer", [])
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.2), constrained_layout=True)
+
+    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.2), constrained_layout=True)
+
+    # Panel 1: Effective Rank of QK Kernel (≈ M matrix in BMB paper)
     ax = axes[0]
     for name, meta in RUNS.items():
         if name not in all_ranks:
@@ -224,18 +228,43 @@ def plot_rank_analysis() -> None:
         layers = [r["layer"] for r in all_ranks[name]]
         eranks = [r.get("effective_rank_qk_mean", 0) for r in all_ranks[name]]
         ax.plot(layers, eranks, color=meta["color"], marker=meta["marker"],
-                linewidth=2.0, markersize=5, label=meta["short"])
+                linewidth=2.0, markersize=4.5, label=meta["short"])
+    # Overlay BMB's effective_rank_M_mean for direct comparison
     if bmb_diagnostics:
         layers = [r["layer"] for r in bmb_diagnostics]
-        eranks = [r.get("effective_rank_M_mean", 0) for r in bmb_diagnostics]
-        ax.plot(layers, eranks, color="#DD8452", marker="s",
-                linewidth=2.0, markersize=5, label="BMB")
-    ax.set_title("Effective Rank of QK Kernel")
+        eranks_m = [r["effective_rank_M_mean"] for r in bmb_diagnostics]
+        ax.plot(layers, eranks_m, color="#DD8452", marker="s", linestyle="--",
+                linewidth=2.0, markersize=4.5, label="BMB (from log)")
+    ax.set_title("Effective Rank of QK / M Kernel")
     ax.set_xlabel("Layer")
     ax.set_ylabel("Mean Effective Rank")
     ax.set_xticks(range(12))
-    ax.legend(loc="best", frameon=False, ncol=2)
+    ax.legend(loc="best", frameon=False, ncol=2, fontsize=7.5)
+
+    # Panel 2: Effective Rank of Shared Basis B (BMB only, from log)
     ax = axes[1]
+    if bmb_diagnostics:
+        layers = [r["layer"] for r in bmb_diagnostics]
+        erank_b = [r["effective_rank_B"] for r in bmb_diagnostics]
+        ax.plot(layers, erank_b, color="#DD8452", marker="s",
+                linewidth=2.0, markersize=5, label="BMB $=64")
+    # For BMB-UV, show basis effective rank if computed
+    for name in ["BMB-UV $=32,$=32", "BMB-UV $=64,$=64"]:
+        if name not in all_ranks or "effective_rank_basis" not in all_ranks[name][0]:
+            continue
+        meta = RUNS[name]
+        layers = [r["layer"] for r in all_ranks[name]]
+        erank_basis = [r["effective_rank_basis"] for r in all_ranks[name]]
+        ax.plot(layers, erank_basis, color=meta["color"], marker=meta["marker"],
+                linewidth=2.0, markersize=4.5, label=meta["short"])
+    ax.set_title("Effective Rank of Shared Basis $")
+    ax.set_xlabel("Layer")
+    ax.set_ylabel("Effective Rank")
+    ax.set_xticks(range(12))
+    ax.legend(loc="best", frameon=False, ncol=2, fontsize=7.5)
+
+    # Panel 3: Head Diversity (cosine similarity)
+    ax = axes[2]
     for name, meta in RUNS.items():
         if name not in all_ranks:
             continue
@@ -248,22 +277,22 @@ def plot_rank_analysis() -> None:
         if diversity is None:
             continue
         ax.plot(layers, diversity, color=meta["color"], marker=meta["marker"],
-                linewidth=2.0, markersize=5, label=meta["short"])
+                linewidth=2.0, markersize=4.5, label=meta["short"])
     if bmb_diagnostics:
         layers = [r["layer"] for r in bmb_diagnostics]
-        divs = [r.get("head_M_cosine_similarity_mean", 0) for r in bmb_diagnostics]
-        ax.plot(layers, divs, color="#DD8452", marker="s",
-                linewidth=2.0, markersize=5, label="BMB")
-    ax.set_title("Head Diversity (Cosine Similarity)")
+        divs = [r["head_M_cosine_similarity_mean"] for r in bmb_diagnostics]
+        ax.plot(layers, divs, color="#DD8452", marker="s", linestyle="--",
+                linewidth=2.0, markersize=4.5, label="BMB (from log)")
+    ax.set_title("Head Diversity in $ / QK")
     ax.set_xlabel("Layer")
     ax.set_ylabel("Mean Cosine Similarity")
     ax.set_xticks(range(12))
-    ax.legend(loc="best", frameon=False, ncol=2)
-    fig.suptitle("Attention Rank and Diversity Analysis", fontsize=12, y=1.02)
+    ax.legend(loc="best", frameon=False, ncol=2, fontsize=7.5)
+
+    fig.suptitle("Attention Rank and Diversity Analysis", fontsize=12, y=1.03)
     fig.savefig(FIG_ROOT / "figD_rank_analysis.pdf", bbox_inches="tight")
     fig.savefig(FIG_ROOT / "figD_rank_analysis.png", bbox_inches="tight")
     plt.close(fig)
-
 
 def main() -> None:
     FIG_ROOT.mkdir(parents=True, exist_ok=True)
