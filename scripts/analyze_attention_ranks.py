@@ -163,19 +163,19 @@ def analyze_partialshared(run_dir: str) -> list[dict]:
 RUN_ANALYZERS = {
     "Baseline": analyze_baseline,
     "FullyShared": analyze_fullyshared,
-    "LowRank r32": analyze_lowrank,
-    "BMB-UV r32s32": analyze_bmbuv,
-    "BMB-UV r64s64": analyze_bmbuv,
-    "PartialShared r48": analyze_partialshared,
+    "LowRank $r$=32": analyze_lowrank,
+    "BMB-UV $r$=32,$s$=32": analyze_bmbuv,
+    "BMB-UV $r$=64,$s$=64": analyze_bmbuv,
+    "PartialShared $r$=48": analyze_partialshared,
 }
 
 RUN_DIRS = {
     "Baseline": "runs/imagenet1k_vit12_baseline_recipe_30ep_gpu5",
     "FullyShared": "runs/fs",
-    "LowRank r32": "runs/lr32",
-    "BMB-UV r32s32": "runs/bmbuv",
-    "BMB-UV r64s64": "runs/imagenet1k_vit12_bmbuv_recipe_r64_s64_30ep_gpu1",
-    "PartialShared r48": "runs/ps48",
+    "LowRank $r$=32": "runs/lr32",
+    "BMB-UV $r$=32,$s$=32": "runs/bmbuv",
+    "BMB-UV $r$=64,$s$=64": "runs/imagenet1k_vit12_bmbuv_recipe_r64_s64_30ep_gpu1",
+    "PartialShared $r$=48": "runs/ps48",
 }
 
 

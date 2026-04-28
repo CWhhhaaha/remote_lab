@@ -218,15 +218,24 @@ def plot_rank_analysis() -> None:
         bmb_m = json.load(bmb_metrics_path.open())
         bmb_diagnostics = bmb_m.get("bmb_diagnostics", {}).get("per_layer", [])
 
+    # Key name mapping between RUNS keys and all_ranks keys
+    RANK_KEY_MAP = {
+        "LowRank $r$=32": "LowRank r32",
+        "BMB-UV $r$=32,$s$=32": "BMB-UV r32s32",
+        "BMB-UV $r$=64,$s$=64": "BMB-UV r64s64",
+        "PartialShared $r$=48": "PartialShared r48",
+    }
+
     fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.2), constrained_layout=True)
 
-    # Panel 1: Effective Rank of QK Kernel (≈ M matrix in BMB paper)
+    # Panel 1: Effective Rank of QK Kernel (all methods)
     ax = axes[0]
     for name, meta in RUNS.items():
-        if name not in all_ranks:
+        rank_key = RANK_KEY_MAP.get(name, name)
+        if rank_key not in all_ranks:
             continue
-        layers = [r["layer"] for r in all_ranks[name]]
-        eranks = [r.get("effective_rank_qk_mean", 0) for r in all_ranks[name]]
+        layers = [r["layer"] for r in all_ranks[rank_key]]
+        eranks = [r.get("effective_rank_qk_mean", 0) for r in all_ranks[rank_key]]
         ax.plot(layers, eranks, color=meta["color"], marker=meta["marker"],
                 linewidth=2.0, markersize=4.5, label=meta["short"])
     # Overlay BMB's effective_rank_M_mean for direct comparison
@@ -266,13 +275,14 @@ def plot_rank_analysis() -> None:
     # Panel 3: Head Diversity (cosine similarity)
     ax = axes[2]
     for name, meta in RUNS.items():
-        if name not in all_ranks:
+        rank_key = RANK_KEY_MAP.get(name, name)
+        if rank_key not in all_ranks:
             continue
-        layers = [r["layer"] for r in all_ranks[name]]
+        layers = [r["layer"] for r in all_ranks[rank_key]]
         diversity = None
         for key in ("head_query_diversity", "head_q_diversity", "head_u_diversity"):
-            if key in all_ranks[name][0]:
-                diversity = [r[key] for r in all_ranks[name]]
+            if key in all_ranks[rank_key][0]:
+                diversity = [r[key] for r in all_ranks[rank_key]]
                 break
         if diversity is None:
             continue
