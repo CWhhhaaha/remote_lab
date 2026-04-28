@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np
 import torch
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPORT_ROOT = REPO_ROOT / "reports" / "imagenet_total_comparison" / "rank_analysis"
 
 
 def effective_rank(matrix: torch.Tensor, threshold: float = 0.01) -> int:
@@ -179,32 +182,47 @@ RUN_DIRS = {
 }
 
 
+SEARCH_ROOTS = (
+    REPO_ROOT,
+    REPO_ROOT / "reports" / "imagenet_total_comparison" / "raw",
+    REPO_ROOT / "reports" / "imagenet_triplet_compare" / "raw",
+    REPO_ROOT / "reports" / "imagenet_30ep_bmb_vs_baseline" / "raw",
+)
+
+
+def resolve_run_dir(rel_dir: str) -> Path | None:
+    for root in SEARCH_ROOTS:
+        candidate = root / rel_dir
+        if (candidate / "model" / "model.safetensors").exists() or (candidate / "model" / "pytorch_model.bin").exists():
+            return candidate
+    return None
+
+
 def main() -> None:
-    base = Path(os.path.expanduser("~/remote_lab"))
-    out_dir = base / "reports/imagenet_total_comparison/rank_analysis"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     all_results = {}
     for name, analyzer in RUN_ANALYZERS.items():
-        run_dir = base / RUN_DIRS[name]
-        model_file = run_dir / "model" / "model.safetensors"
-        print(f"Checking {name}: {model_file} ... exists={model_file.exists()}")
-        if not model_file.exists():
-            print(f"  Skipping {name}: {model_file} not found")
+        run_dir = resolve_run_dir(RUN_DIRS[name])
+        if run_dir is None:
+            print(f"  Skipping {name}: model directory not found for {RUN_DIRS[name]}")
             continue
+        model_file = run_dir / "model" / "model.safetensors"
+        bin_file = run_dir / "model" / "pytorch_model.bin"
+        print(f"Checking {name}: {run_dir} ... exists={model_file.exists() or bin_file.exists()}")
         print(f"  Analyzing {name} ...")
         try:
             results = analyzer(str(run_dir))
             all_results[name] = results
             safe_name = name.replace(" ", "_").replace("$", "").replace("=", "_")
-            with open(out_dir / f"{safe_name}.json", "w") as f:
+            with open(REPORT_ROOT / f"{safe_name}.json", "w") as f:
                 json.dump(results, f, indent=2)
         except Exception as e:
             print(f"  Error analyzing {name}: {e}")
             import traceback
             traceback.print_exc()
-    with open(out_dir / "all_ranks.json", "w") as f:
+    with open(REPORT_ROOT / "all_ranks.json", "w") as f:
         json.dump(all_results, f, indent=2)
-    print(f"\nDone! Results saved to {out_dir}")
+    print(f"\nDone! Results saved to {REPORT_ROOT}")
 
 
 if __name__ == "__main__":
