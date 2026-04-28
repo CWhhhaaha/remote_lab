@@ -11,17 +11,14 @@ import torch
 
 
 def effective_rank(matrix: torch.Tensor, threshold: float = 0.01) -> int:
-    """Number of singular values above threshold * max_sv."""
     try:
         _, s, _ = torch.linalg.svd(matrix.float(), full_matrices=False)
     except Exception:
-        # Fallback for older PyTorch
         s = torch.linalg.svdvals(matrix.float())
     return int((s > threshold * s[0]).sum().item())
 
 
 def head_diversity(mats: torch.Tensor) -> float:
-    """Mean pairwise cosine similarity of flattened matrices. [H, ...]"""
     H = mats.shape[0]
     flat = mats.view(H, -1)
     norms = flat.norm(dim=1, keepdim=True)
@@ -31,17 +28,32 @@ def head_diversity(mats: torch.Tensor) -> float:
     return float(sim[mask].mean().item())
 
 
+def load_checkpoint(run_dir: str) -> dict:
+    model_dir = Path(run_dir) / "model"
+    safetensors_path = model_dir / "model.safetensors"
+    bin_path = model_dir / "pytorch_model.bin"
+    if safetensors_path.exists():
+        try:
+            from safetensors.torch import load_file
+            return load_file(str(safetensors_path))
+        except ImportError:
+            print("safetensors not installed, trying torch.load on .bin")
+    if bin_path.exists():
+        return torch.load(bin_path, map_location="cpu")
+    raise FileNotFoundError(f"No checkpoint found in {model_dir}")
+
+
 def analyze_baseline(run_dir: str) -> list[dict]:
-    ckpt = torch.load(Path(run_dir) / "model" / "pytorch_model.bin", map_location="cpu")
+    ckpt = load_checkpoint(run_dir)
     results = []
     for i in range(12):
-        q = ckpt[f"vit.encoder.layer.{i}.attention.attention.query.weight"]  # [768, 768]
-        k = ckpt[f"vit.encoder.layer.{i}.attention.attention.key.weight"]    # [768, 768]
+        q = ckpt[f"vit.encoder.layer.{i}.attention.attention.query.weight"]
+        k = ckpt[f"vit.encoder.layer.{i}.attention.attention.key.weight"]
         q_heads = q.view(12, 64, 768)
         k_heads = k.view(12, 64, 768)
         eranks = []
         for h in range(12):
-            kernel = q_heads[h].T @ k_heads[h]  # [768, 768]
+            kernel = q_heads[h].T @ k_heads[h]
             eranks.append(effective_rank(kernel))
         results.append({
             "layer": i,
@@ -53,14 +65,14 @@ def analyze_baseline(run_dir: str) -> list[dict]:
 
 
 def analyze_fullyshared(run_dir: str) -> list[dict]:
-    ckpt = torch.load(Path(run_dir) / "model" / "pytorch_model.bin", map_location="cpu")
+    ckpt = load_checkpoint(run_dir)
     results = []
     for i in range(12):
-        w = ckpt[f"vit.encoder.layer.{i}.attention.attention.query_key.weight"]  # [768, 768]
+        w = ckpt[f"vit.encoder.layer.{i}.attention.attention.query_key.weight"]
         w_heads = w.view(12, 64, 768)
         eranks = []
         for h in range(12):
-            kernel = w_heads[h].T @ w_heads[h]  # symmetric
+            kernel = w_heads[h].T @ w_heads[h]
             eranks.append(effective_rank(kernel))
         results.append({
             "layer": i,
@@ -71,18 +83,18 @@ def analyze_fullyshared(run_dir: str) -> list[dict]:
 
 
 def analyze_lowrank(run_dir: str) -> list[dict]:
-    ckpt = torch.load(Path(run_dir) / "model" / "pytorch_model.bin", map_location="cpu")
+    ckpt = load_checkpoint(run_dir)
     results = []
     for i in range(12):
-        q_a = ckpt[f"vit.encoder.layer.{i}.attention.attention.q_a"]  # [12, 768, 32]
-        q_b = ckpt[f"vit.encoder.layer.{i}.attention.attention.q_b"]  # [12, 32, 64]
-        k_a = ckpt[f"vit.encoder.layer.{i}.attention.attention.k_a"]  # [12, 768, 32]
-        k_b = ckpt[f"vit.encoder.layer.{i}.attention.attention.k_b"]  # [12, 32, 64]
+        q_a = ckpt[f"vit.encoder.layer.{i}.attention.attention.q_a"]
+        q_b = ckpt[f"vit.encoder.layer.{i}.attention.attention.q_b"]
+        k_a = ckpt[f"vit.encoder.layer.{i}.attention.attention.k_a"]
+        k_b = ckpt[f"vit.encoder.layer.{i}.attention.attention.k_b"]
         eranks = []
         for h in range(12):
-            w_q = torch.matmul(q_a[h], q_b[h])  # [768, 64]
-            w_k = torch.matmul(k_a[h], k_b[h])  # [768, 64]
-            kernel = w_q @ w_k.T  # [768, 768]
+            w_q = torch.matmul(q_a[h], q_b[h])
+            w_k = torch.matmul(k_a[h], k_b[h])
+            kernel = w_q @ w_k.T
             eranks.append(effective_rank(kernel))
         results.append({
             "layer": i,
@@ -94,55 +106,48 @@ def analyze_lowrank(run_dir: str) -> list[dict]:
 
 
 def analyze_bmbuv(run_dir: str) -> list[dict]:
-    ckpt = torch.load(Path(run_dir) / "model" / "pytorch_model.bin", map_location="cpu")
+    ckpt = load_checkpoint(run_dir)
     results = []
     for i in range(12):
-        basis = ckpt[f"vit.encoder.layer.{i}.attention.attention.basis.weight"]  # [32, 768] or [64, 768]
-        u = ckpt[f"vit.encoder.layer.{i}.attention.attention.u_factor"]  # [12, r, s]
-        v = ckpt[f"vit.encoder.layer.{i}.attention.attention.v_factor"]  # [12, r, s]
-        r = basis.shape[0]
-        # Effective rank of basis
+        basis = ckpt[f"vit.encoder.layer.{i}.attention.attention.basis.weight"]
+        u = ckpt[f"vit.encoder.layer.{i}.attention.attention.u_factor"]
+        v = ckpt[f"vit.encoder.layer.{i}.attention.attention.v_factor"]
         erank_basis = effective_rank(basis)
-        # Head diversity of U and V
-        u_diversity = head_diversity(u)
-        v_diversity = head_diversity(v)
-        # Per-head QK kernel effective rank
+        u_div = head_diversity(u)
+        v_div = head_diversity(v)
         eranks = []
         for h in range(12):
-            # QK kernel ≈ basis.T @ u[h] @ v[h].T @ basis
-            mid = torch.matmul(u[h], v[h].T)  # [r, r]
-            kernel = basis.T @ mid @ basis  # [768, 768]
+            mid = torch.matmul(u[h], v[h].T)
+            kernel = basis.T @ mid @ basis
             eranks.append(effective_rank(kernel))
         results.append({
             "layer": i,
             "effective_rank_basis": erank_basis,
             "effective_rank_qk_mean": float(np.mean(eranks)),
-            "head_u_diversity": u_diversity,
-            "head_v_diversity": v_diversity,
+            "head_u_diversity": u_div,
+            "head_v_diversity": v_div,
         })
     return results
 
 
 def analyze_partialshared(run_dir: str) -> list[dict]:
-    ckpt = torch.load(Path(run_dir) / "model" / "pytorch_model.bin", map_location="cpu")
+    ckpt = load_checkpoint(run_dir)
     results = []
     for i in range(12):
-        share = ckpt[f"vit.encoder.layer.{i}.attention.attention.share.weight"]         # [H*r_s, 768]
-        q_priv = ckpt[f"vit.encoder.layer.{i}.attention.attention.query_priv.weight"]   # [H*r_p, 768]
-        k_priv = ckpt[f"vit.encoder.layer.{i}.attention.attention.key_priv.weight"]     # [H*r_p, 768]
-        # Reshape to per-head
+        share = ckpt[f"vit.encoder.layer.{i}.attention.attention.share.weight"]
+        q_priv = ckpt[f"vit.encoder.layer.{i}.attention.attention.query_priv.weight"]
+        k_priv = ckpt[f"vit.encoder.layer.{i}.attention.attention.key_priv.weight"]
         H, d = 12, 768
         r_s = share.shape[0] // H
         r_p = q_priv.shape[0] // H
         share_h = share.view(H, r_s, d)
         q_priv_h = q_priv.view(H, r_p, d)
         k_priv_h = k_priv.view(H, r_p, d)
-        # Concatenate for full Q/K projection per head
-        q_full = torch.cat([share_h, q_priv_h], dim=1)  # [H, d_k, d]
-        k_full = torch.cat([share_h, k_priv_h], dim=1)  # [H, d_k, d]
+        q_full = torch.cat([share_h, q_priv_h], dim=1)
+        k_full = torch.cat([share_h, k_priv_h], dim=1)
         eranks = []
         for h in range(H):
-            kernel = q_full[h].T @ k_full[h]  # [d, d]
+            kernel = q_full[h].T @ k_full[h]
             eranks.append(effective_rank(kernel))
         results.append({
             "layer": i,
@@ -179,21 +184,21 @@ def main() -> None:
     all_results = {}
     for name, analyzer in RUN_ANALYZERS.items():
         run_dir = RUN_DIRS[name]
-        if not (Path(run_dir) / "model" / "pytorch_model.bin").exists():
-            print(f"Skipping {name}: checkpoint not found")
+        model_file = Path(run_dir) / "model" / "model.safetensors"
+        if not model_file.exists():
+            print(f"Skipping {name}: {model_file} not found")
             continue
         print(f"Analyzing {name} ...")
         try:
             results = analyzer(run_dir)
             all_results[name] = results
-            with open(out_dir / f"{name.replace(' ', '_').replace('$', '').replace('=', '_')}.json", "w") as f:
+            safe_name = name.replace(" ", "_").replace("$", "").replace("=", "_")
+            with open(out_dir / f"{safe_name}.json", "w") as f:
                 json.dump(results, f, indent=2)
         except Exception as e:
             print(f"Error analyzing {name}: {e}")
-    
     with open(out_dir / "all_ranks.json", "w") as f:
         json.dump(all_results, f, indent=2)
-    
     print(f"\nDone! Results saved to {out_dir}")
 
 
