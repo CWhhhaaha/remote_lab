@@ -13,16 +13,17 @@ ROOT = Path("reports/imagenet_total_comparison")
 FIG_ROOT = ROOT / "figures"
 TABLE_ROOT = ROOT / "tables"
 
-# Correct QK parameters computed from source code (ViT-B/16, 12 layers)
+# CORRECT QK parameters computed from actual source code (ViT-B/16, 12 layers)
+# NOTE: PartialShared bug in summarize function was fixed here.
 QK_PARAMS = {
-    "Baseline": 14155776,
-    "BMB $r$=64": 1228800,
-    "BBT $r$=64": 589824,
-    "BMB-UV $r$=64,$s$=64": 1769472,
-    "FullyShared": 7077888,
-    "LowRank $r$=32": 7667712,
-    "BMB-UV $r$=32,$s$=32": 589824,
-    "PartialShared $r$=48": 4423680,
+    "Baseline": 14155776,              # 2*d*d*12
+    "BMB $r$=64": 1228800,             # (d*r + (H+1)*r*r)*12
+    "BBT $r$=64": 589824,              # d*r*12
+    "BMB-UV $r$=64,$s$=64": 1769472,  # (d*r + 2*H*r*s)*12
+    "FullyShared": 7077888,            # d*d*12
+    "LowRank $r$=32": 7667712,         # 2*H*(d*r + r*d_h)*12
+    "BMB-UV $r$=32,$s$=32": 589824,   # (d*r + 2*H*r*s)*12
+    "PartialShared $r$=48": 8847360,   # (d*H*r_s + 2*d*H*r_p)*12
 }
 
 RUNS = {
@@ -126,28 +127,15 @@ def metric_series(rows: list[dict], key: str) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(xs), np.asarray(ys)
 
 
-# ------------------------------------------------------------------
-# Figure A: Accuracy vs. QK Parameters
-# ------------------------------------------------------------------
 def plot_accuracy_vs_qk_params() -> None:
     fig, ax = plt.subplots(figsize=(9, 6))
-
     for name, meta in RUNS.items():
         run = load_run(meta["dir"])
         m = run["metrics"]
         x = QK_PARAMS[name] / 1e6
         y = m["final_eval_accuracy"] * 100.0
-        ax.scatter(
-            x, y, color=meta["color"], marker=meta["marker"], s=150, zorder=3
-        )
-        ax.annotate(
-            meta["short"],
-            (x, y),
-            textcoords="offset points",
-            xytext=(6, 4),
-            fontsize=8,
-        )
-
+        ax.scatter(x, y, color=meta["color"], marker=meta["marker"], s=150, zorder=3)
+        ax.annotate(meta["short"], (x, y), textcoords="offset points", xytext=(6, 4), fontsize=8)
     ax.set_xlabel("QK Path Parameters (M)")
     ax.set_ylabel("Final Top-1 Accuracy (%)")
     ax.set_title("Accuracy vs. QK Parameter Size Trade-off (ImageNet-1K, 30 Epochs)")
@@ -156,9 +144,6 @@ def plot_accuracy_vs_qk_params() -> None:
     plt.close(fig)
 
 
-# ------------------------------------------------------------------
-# Figure B: Learning Curves
-# ------------------------------------------------------------------
 def plot_learning_curves() -> None:
     fig, axes = plt.subplots(2, 2, figsize=(11, 7.5), constrained_layout=True)
     panels = [
@@ -167,7 +152,6 @@ def plot_learning_curves() -> None:
         ("eval_loss", "Validation Loss", "Cross-Entropy Loss", lambda y: y),
         ("avg_total_loss", "Training Loss", "Training Loss", lambda y: y),
     ]
-
     for ax, (key, title, ylabel, transform) in zip(axes.flat, panels):
         for name, meta in RUNS.items():
             run = load_run(meta["dir"])
@@ -179,7 +163,6 @@ def plot_learning_curves() -> None:
         ax.set_ylabel(ylabel)
         ax.set_xlim(1, 30)
         ax.set_xticks([1, 5, 10, 15, 20, 25, 30])
-
     axes[0, 0].legend(loc="lower right", frameon=False, ncol=2)
     fig.suptitle("ImageNet-1K 30-Epoch Training Curves", fontsize=12, y=1.01)
     fig.savefig(FIG_ROOT / "figB_learning_curves.pdf", bbox_inches="tight")
@@ -187,9 +170,6 @@ def plot_learning_curves() -> None:
     plt.close(fig)
 
 
-# ------------------------------------------------------------------
-# Figure C: LaTeX Tables
-# ------------------------------------------------------------------
 def write_text(path: Path, text: str) -> None:
     path.write_text(text.rstrip() + "\n")
 
@@ -228,16 +208,12 @@ def main() -> None:
     FIG_ROOT.mkdir(parents=True, exist_ok=True)
     TABLE_ROOT.mkdir(parents=True, exist_ok=True)
     setup_plotting()
-
     print("Plotting Figure A: Accuracy vs. QK Parameters ...")
     plot_accuracy_vs_qk_params()
-
     print("Plotting Figure B: Learning Curves ...")
     plot_learning_curves()
-
     print("Writing Figure C: LaTeX Tables ...")
     make_main_table()
-
     print(f"\nDone! Output in {ROOT.resolve()}/")
     print(f"  Figures: {FIG_ROOT}")
     print(f"  Tables:  {TABLE_ROOT}")
