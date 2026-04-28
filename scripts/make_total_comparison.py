@@ -204,36 +204,19 @@ def make_main_table() -> None:
     write_text(TABLE_ROOT / "table_total_comparison.tex", "\n".join(lines))
 
 
-
-    FIG_ROOT.mkdir(parents=True, exist_ok=True)
-    TABLE_ROOT.mkdir(parents=True, exist_ok=True)
-    setup_plotting()
-    print("Plotting Figure A: Accuracy vs. QK Parameters ...")
-    plot_accuracy_vs_qk_params()
-    print("Plotting Figure B: Learning Curves ...")
-    plot_learning_curves()
-    print("Writing Figure C: LaTeX Tables ...")
-    make_main_table()
-    print("Plotting Figure D: Rank Analysis ...")
-
-
 def plot_rank_analysis() -> None:
     rank_dir = Path("reports/imagenet_total_comparison/rank_analysis")
     if not (rank_dir / "all_ranks.json").exists():
         print("Rank analysis data not found. Skipping rank plot.")
         return
-
     with open(rank_dir / "all_ranks.json") as f:
         all_ranks = json.load(f)
-
     bmb_diagnostics = []
     bmb_metrics_path = Path("runs/imagenet1k_vit12_bmb_recipe_r64_30ep_gpu7/metrics.json")
     if bmb_metrics_path.exists():
         bmb_m = json.load(bmb_metrics_path.open())
         bmb_diagnostics = bmb_m.get("bmb_diagnostics", {}).get("per_layer", [])
-
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.2), constrained_layout=True)
-
     ax = axes[0]
     for name, meta in RUNS.items():
         if name not in all_ranks:
@@ -252,7 +235,6 @@ def plot_rank_analysis() -> None:
     ax.set_ylabel("Mean Effective Rank")
     ax.set_xticks(range(12))
     ax.legend(loc="best", frameon=False, ncol=2)
-
     ax = axes[1]
     for name, meta in RUNS.items():
         if name not in all_ranks:
@@ -277,7 +259,6 @@ def plot_rank_analysis() -> None:
     ax.set_ylabel("Mean Cosine Similarity")
     ax.set_xticks(range(12))
     ax.legend(loc="best", frameon=False, ncol=2)
-
     fig.suptitle("Attention Rank and Diversity Analysis", fontsize=12, y=1.02)
     fig.savefig(FIG_ROOT / "figD_rank_analysis.pdf", bbox_inches="tight")
     fig.savefig(FIG_ROOT / "figD_rank_analysis.png", bbox_inches="tight")
@@ -288,22 +269,17 @@ def main() -> None:
     FIG_ROOT.mkdir(parents=True, exist_ok=True)
     TABLE_ROOT.mkdir(parents=True, exist_ok=True)
     setup_plotting()
-
     print("Plotting Figure A: Accuracy vs. QK Parameters ...")
     plot_accuracy_vs_qk_params()
-
     print("Plotting Figure B: Learning Curves ...")
     plot_learning_curves()
-
     print("Writing Figure C: LaTeX Tables ...")
     make_main_table()
-
     print("Plotting Figure D: Rank Analysis ...")
     plot_rank_analysis()
-
-    print(f"\nDone! Output in {ROOT.resolve()}/")
-    print(f"  Figures: {FIG_ROOT}")
-    print(f"  Tables:  {TABLE_ROOT}")
+    print("\nDone! Output in " + str(ROOT.resolve()) + "/")
+    print("  Figures: " + str(FIG_ROOT))
+    print("  Tables:  " + str(TABLE_ROOT))
 
 
 if __name__ == "__main__":
