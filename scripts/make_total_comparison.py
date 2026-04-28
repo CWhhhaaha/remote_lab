@@ -215,14 +215,6 @@ def make_main_table() -> None:
     print("Writing Figure C: LaTeX Tables ...")
     make_main_table()
     print("Plotting Figure D: Rank Analysis ...")
-    plot_rank_analysis()
-    print(f"\nDone! Output in {ROOT.resolve()}/")
-    print(f"  Figures: {FIG_ROOT}")
-    print(f"  Tables:  {TABLE_ROOT}")
-
-
-def main() -> None:if __name__ == "__main__":
-    main()
 
 
 def plot_rank_analysis() -> None:
@@ -234,7 +226,6 @@ def plot_rank_analysis() -> None:
     with open(rank_dir / "all_ranks.json") as f:
         all_ranks = json.load(f)
 
-    # Also load BMB diagnostics from metrics.json if available
     bmb_diagnostics = []
     bmb_metrics_path = Path("runs/imagenet1k_vit12_bmb_recipe_r64_30ep_gpu7/metrics.json")
     if bmb_metrics_path.exists():
@@ -243,7 +234,6 @@ def plot_rank_analysis() -> None:
 
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.2), constrained_layout=True)
 
-    # Left: Effective rank of QK kernel per layer
     ax = axes[0]
     for name, meta in RUNS.items():
         if name not in all_ranks:
@@ -252,7 +242,6 @@ def plot_rank_analysis() -> None:
         eranks = [r.get("effective_rank_qk_mean", 0) for r in all_ranks[name]]
         ax.plot(layers, eranks, color=meta["color"], marker=meta["marker"],
                 linewidth=2.0, markersize=5, label=meta["short"])
-    # Add BMB diagnostics if available
     if bmb_diagnostics:
         layers = [r["layer"] for r in bmb_diagnostics]
         eranks = [r.get("effective_rank_M_mean", 0) for r in bmb_diagnostics]
@@ -264,13 +253,11 @@ def plot_rank_analysis() -> None:
     ax.set_xticks(range(12))
     ax.legend(loc="best", frameon=False, ncol=2)
 
-    # Right: Head diversity (query / U)
     ax = axes[1]
     for name, meta in RUNS.items():
         if name not in all_ranks:
             continue
         layers = [r["layer"] for r in all_ranks[name]]
-        # Try different keys for diversity
         diversity = None
         for key in ("head_query_diversity", "head_q_diversity", "head_u_diversity"):
             if key in all_ranks[name][0]:
@@ -295,3 +282,29 @@ def plot_rank_analysis() -> None:
     fig.savefig(FIG_ROOT / "figD_rank_analysis.pdf", bbox_inches="tight")
     fig.savefig(FIG_ROOT / "figD_rank_analysis.png", bbox_inches="tight")
     plt.close(fig)
+
+
+def main() -> None:
+    FIG_ROOT.mkdir(parents=True, exist_ok=True)
+    TABLE_ROOT.mkdir(parents=True, exist_ok=True)
+    setup_plotting()
+
+    print("Plotting Figure A: Accuracy vs. QK Parameters ...")
+    plot_accuracy_vs_qk_params()
+
+    print("Plotting Figure B: Learning Curves ...")
+    plot_learning_curves()
+
+    print("Writing Figure C: LaTeX Tables ...")
+    make_main_table()
+
+    print("Plotting Figure D: Rank Analysis ...")
+    plot_rank_analysis()
+
+    print(f"\nDone! Output in {ROOT.resolve()}/")
+    print(f"  Figures: {FIG_ROOT}")
+    print(f"  Tables:  {TABLE_ROOT}")
+
+
+if __name__ == "__main__":
+    main()
