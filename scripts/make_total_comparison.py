@@ -124,7 +124,7 @@ def plot_accuracy_vs_params() -> None:
         run = load_run(meta["dir"])
         m = run["metrics"]
         p = m["parameter_summary"]
-        x = p["total_params"] / 1e6
+        x = m["attention_theory_summary"]["qk_weight_params_total"] / 1e6
         y = m["final_eval_accuracy"] * 100.0
         ax.scatter(
             x, y, color=meta["color"], marker=meta["marker"], s=150, zorder=3
@@ -137,9 +137,9 @@ def plot_accuracy_vs_params() -> None:
             fontsize=8,
         )
 
-    ax.set_xlabel("Total Parameters (M)")
+    ax.set_xlabel("QK Path Parameters (M)")
     ax.set_ylabel("Final Top-1 Accuracy (%)")
-    ax.set_title("Accuracy vs. Model Size Trade-off (ImageNet-1K, 30 Epochs)")
+    ax.set_title("Accuracy vs. QK Param Size Trade-off (ImageNet-1K, 30 Epochs)")
     fig.savefig(FIG_ROOT / "figA_accuracy_vs_params.pdf", bbox_inches="tight")
     fig.savefig(FIG_ROOT / "figA_accuracy_vs_params.png", bbox_inches="tight")
     plt.close(fig)
