@@ -16,11 +16,13 @@ Example:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from itertools import chain
 
 import torch
-from datasets import load_dataset, load_from_disk
+from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 from transformers import (
     GPT2Config,
     GPT2LMHeadModel,
@@ -47,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shared-dim", type=int, default=48, help="Shared qk dim for partialshared")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory")
     parser.add_argument("--dataset-path", type=str, default="~/datasets/text/c4-realnewslike", help="Path to C4 dataset")
+    parser.add_argument("--num-proc", type=int, default=8, help="Worker processes for tokenization/preprocessing")
     parser.add_argument("--max-steps", type=int, default=50000, help="Total training steps")
     parser.add_argument("--eval-steps", type=int, default=1000, help="Evaluate every N steps")
     parser.add_argument("--save-steps", type=int, default=5000, help="Save checkpoint every N steps")
@@ -78,18 +81,93 @@ def load_or_download_c4(dataset_path: str):
     return ds
 
 
-def tokenize_and_group(examples, tokenizer, seq_length: int):
-    """Tokenize texts and group into fixed-length chunks."""
-    # Concatenate all texts
-    concatenated = {k: sum(examples[k], []) for k in examples.keys()}
+def group_tokenized_examples(examples: dict, seq_length: int) -> dict:
+    """Group tokenized examples into fixed-length contiguous chunks."""
+    concatenated = {k: list(chain.from_iterable(examples[k])) for k in examples.keys()}
     total_length = len(concatenated["input_ids"])
-    # Drop remainder
     total_length = (total_length // seq_length) * seq_length
-    result = {
+    if total_length == 0:
+        return {k: [] for k in concatenated.keys()}
+    return {
         k: [t[i : i + seq_length] for i in range(0, total_length, seq_length)]
         for k, t in concatenated.items()
     }
-    return result
+
+
+def is_prepared_cache(ds: Dataset | DatasetDict) -> bool:
+    if isinstance(ds, DatasetDict):
+        if "train" not in ds:
+            return False
+        sample_split = ds["train"]
+    else:
+        sample_split = ds
+    cols = set(sample_split.column_names)
+    return "input_ids" in cols
+
+
+def prepare_raw_c4(
+    ds: Dataset,
+    tokenizer: GPT2Tokenizer,
+    seq_length: int,
+    seed: int,
+    num_proc: int,
+) -> DatasetDict:
+    ds = ds.train_test_split(test_size=0.005, seed=seed)
+    train_ds = ds["train"]
+    val_ds = ds["test"]
+    print(f"Train examples: {len(train_ds)}, Val examples: {len(val_ds)}")
+
+    remove_cols = [c for c in ["text", "timestamp", "url"] if c in train_ds.column_names]
+
+    def tokenize_fn(examples):
+        return tokenizer(examples["text"], truncation=False, add_special_tokens=False)
+
+    train_ds = train_ds.map(tokenize_fn, batched=True, num_proc=num_proc, remove_columns=remove_cols)
+    val_ds = val_ds.map(tokenize_fn, batched=True, num_proc=num_proc, remove_columns=remove_cols)
+
+    def group_fn(examples):
+        return group_tokenized_examples(examples, seq_length)
+
+    train_ds = train_ds.map(group_fn, batched=True, num_proc=num_proc)
+    val_ds = val_ds.map(group_fn, batched=True, num_proc=num_proc)
+    return DatasetDict({"train": train_ds, "val": val_ds})
+
+
+def load_training_splits(
+    dataset_path: str,
+    tokenizer: GPT2Tokenizer,
+    seq_length: int,
+    seed: int,
+    num_proc: int,
+) -> tuple[Dataset, Dataset]:
+    ds = load_or_download_c4(dataset_path)
+    if is_prepared_cache(ds):
+        print("Detected prepared tokenized cache.")
+        if isinstance(ds, DatasetDict):
+            train_ds = ds["train"]
+            if "val" in ds:
+                val_ds = ds["val"]
+            elif "validation" in ds:
+                val_ds = ds["validation"]
+            elif "test" in ds:
+                val_ds = ds["test"]
+            else:
+                raise ValueError("Prepared cache found, but no val/validation/test split exists.")
+        else:
+            raise ValueError("Prepared cache must be stored as a DatasetDict with train/val splits.")
+    else:
+        if not isinstance(ds, Dataset):
+            if "train" in ds:
+                ds = ds["train"]
+            else:
+                raise ValueError("Raw dataset must contain a train split or be a Dataset.")
+        print("Detected raw text dataset. Tokenizing and grouping on the fly.")
+        prepared = prepare_raw_c4(ds, tokenizer, seq_length, seed, num_proc)
+        train_ds = prepared["train"]
+        val_ds = prepared["val"]
+
+    print(f"Train chunks: {len(train_ds)}, Val chunks: {len(val_ds)}")
+    return train_ds, val_ds
 
 
 def compute_parameter_summary(model: GPT2LMHeadModel) -> dict:
@@ -110,30 +188,14 @@ def main() -> int:
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.eos_token
 
-    # 2. Load / download C4
-    ds = load_or_download_c4(args.dataset_path)
-
-    # C4 realnewslike only has 'train' split; create a small validation split
-    ds = ds.train_test_split(test_size=0.005, seed=args.seed)  # 0.5% for val
-    train_ds = ds["train"]
-    val_ds = ds["test"]
-    print(f"Train examples: {len(train_ds)}, Val examples: {len(val_ds)}")
-
-    # 3. Tokenize
-    def tokenize_fn(examples):
-        return tokenizer(examples["text"], truncation=False, add_special_tokens=False)
-
-    train_ds = train_ds.map(tokenize_fn, batched=True, num_proc=8, remove_columns=["text", "timestamp", "url"])
-    val_ds = val_ds.map(tokenize_fn, batched=True, num_proc=8, remove_columns=["text", "timestamp", "url"])
-
-    # 4. Group into chunks
-    block_size = args.seq_length
-
-    def group_fn(examples):
-        return tokenize_and_group(examples, tokenizer, block_size)
-
-    train_ds = train_ds.map(group_fn, batched=True, num_proc=8)
-    val_ds = val_ds.map(group_fn, batched=True, num_proc=8)
+    # 2. Load prepared cache or build tokenized chunks from raw C4
+    train_ds, val_ds = load_training_splits(
+        args.dataset_path,
+        tokenizer=tokenizer,
+        seq_length=args.seq_length,
+        seed=args.seed,
+        num_proc=args.num_proc,
+    )
 
     # 5. Build model
     config = GPT2Config()
@@ -208,7 +270,6 @@ def main() -> int:
     print(f"Final perplexity: {perplexity:.2f}")
 
     # Save summary
-    import json
     summary = {
         "variant": args.variant,
         "variant_kwargs": variant_kwargs,

@@ -10,7 +10,6 @@ import math
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 
@@ -72,11 +71,13 @@ class GPT2LowRankAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        layer_past: tuple[torch.Tensor, torch.Tensor] | None = None,
+        past_key_values: Any | None = None,
         attention_mask: torch.Tensor | None = None,
-        head_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, ...]:
         B, T, C = hidden_states.size()
 
@@ -94,19 +95,12 @@ class GPT2LowRankAttention(nn.Module):
 
         att = torch.softmax(att, dim=-1)
         att = self.attn_dropout(att)
-        if head_mask is not None:
-            att = att * head_mask
 
         y = att @ v
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        outputs = (y,)
-        if output_attentions:
-            outputs += (att,)
-        if use_cache:
-            outputs += (None,)
-        return outputs
+        return (y, att if output_attentions else None)
 
 
 class GPT2FullySharedAttention(nn.Module):
@@ -148,11 +142,13 @@ class GPT2FullySharedAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        layer_past: tuple[torch.Tensor, torch.Tensor] | None = None,
+        past_key_values: Any | None = None,
         attention_mask: torch.Tensor | None = None,
-        head_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, ...]:
         B, T, C = hidden_states.size()
 
@@ -168,19 +164,12 @@ class GPT2FullySharedAttention(nn.Module):
 
         att = torch.softmax(att, dim=-1)
         att = self.attn_dropout(att)
-        if head_mask is not None:
-            att = att * head_mask
 
         y = att @ v
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        outputs = (y,)
-        if output_attentions:
-            outputs += (att,)
-        if use_cache:
-            outputs += (None,)
-        return outputs
+        return (y, att if output_attentions else None)
 
 
 class GPT2UVLatentAttention(nn.Module):
@@ -238,11 +227,13 @@ class GPT2UVLatentAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        layer_past: tuple[torch.Tensor, torch.Tensor] | None = None,
+        past_key_values: Any | None = None,
         attention_mask: torch.Tensor | None = None,
-        head_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, ...]:
         B, T, C = hidden_states.size()
 
@@ -259,19 +250,12 @@ class GPT2UVLatentAttention(nn.Module):
 
         att = torch.softmax(att, dim=-1)
         att = self.attn_dropout(att)
-        if head_mask is not None:
-            att = att * head_mask
 
         y = att @ v
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        outputs = (y,)
-        if output_attentions:
-            outputs += (att,)
-        if use_cache:
-            outputs += (None,)
-        return outputs
+        return (y, att if output_attentions else None)
 
 
 class GPT2PartialSharedAttention(nn.Module):
@@ -326,11 +310,13 @@ class GPT2PartialSharedAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        layer_past: tuple[torch.Tensor, torch.Tensor] | None = None,
+        past_key_values: Any | None = None,
         attention_mask: torch.Tensor | None = None,
-        head_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
         use_cache: bool = False,
         output_attentions: bool = False,
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, ...]:
         B, T, C = hidden_states.size()
 
@@ -350,19 +336,12 @@ class GPT2PartialSharedAttention(nn.Module):
 
         att = torch.softmax(att, dim=-1)
         att = self.attn_dropout(att)
-        if head_mask is not None:
-            att = att * head_mask
 
         y = att @ v
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        outputs = (y,)
-        if output_attentions:
-            outputs += (att,)
-        if use_cache:
-            outputs += (None,)
-        return outputs
+        return (y, att if output_attentions else None)
 
 
 def replace_gpt2_attention(model: nn.Module, variant: str, **kwargs: Any) -> None:
