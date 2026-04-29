@@ -20,6 +20,7 @@ import inspect
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from itertools import chain
 
 import torch
@@ -29,6 +30,7 @@ from transformers import (
     GPT2LMHeadModel,
     GPT2Tokenizer,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
     DataCollatorForLanguageModeling,
 )
@@ -303,6 +305,43 @@ def build_training_arguments(args: argparse.Namespace) -> TrainingArguments:
     return TrainingArguments(**supported)
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class MetricsJsonlCallback(TrainerCallback):
+    """Persist train/eval metrics incrementally for mid-run analysis."""
+
+    def __init__(self, output_dir: str):
+        self.output_dir = output_dir
+        self.train_path = os.path.join(output_dir, "metrics_train.jsonl")
+        self.eval_path = os.path.join(output_dir, "metrics_eval.jsonl")
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        os.makedirs(self.output_dir, exist_ok=True)
+        for path in (self.train_path, self.eval_path):
+            with open(path, "a", encoding="utf-8"):
+                pass
+        return control
+
+    def _write(self, path: str, payload: dict):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not logs:
+            return control
+        payload = {
+            "timestamp_utc": _utc_now_iso(),
+            "step": int(state.global_step),
+            "epoch": float(state.epoch) if state.epoch is not None else None,
+            **{k: v for k, v in logs.items()},
+        }
+        target = self.eval_path if any(k.startswith("eval_") for k in logs) else self.train_path
+        self._write(target, payload)
+        return control
+
+
 def main() -> int:
     args = parse_args()
     torch.manual_seed(args.seed)
@@ -357,6 +396,18 @@ def main() -> int:
 
     training_args = build_training_arguments(args)
 
+    os.makedirs(args.output_dir, exist_ok=True)
+    run_metadata = {
+        "timestamp_utc": _utc_now_iso(),
+        "variant": args.variant,
+        "variant_kwargs": variant_kwargs,
+        "param_info": param_info,
+        "attention_theory_summary": attention_theory_summary,
+        "training_args": training_args.to_dict(),
+    }
+    with open(os.path.join(args.output_dir, "run_metadata.json"), "w", encoding="utf-8") as f:
+        json.dump(run_metadata, f, indent=2)
+
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     trainer = Trainer(
@@ -365,6 +416,7 @@ def main() -> int:
         train_dataset=train_ds,
         eval_dataset=val_ds,
         data_collator=data_collator,
+        callbacks=[MetricsJsonlCallback(args.output_dir)],
     )
 
     # 7. Train
@@ -428,7 +480,7 @@ def main() -> int:
         "efficiency_summary": efficiency_summary,
         "training_args": training_args.to_dict(),
     }
-    with open(os.path.join(args.output_dir, "summary.json"), "w") as f:
+    with open(os.path.join(args.output_dir, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
     return 0
