@@ -9,6 +9,7 @@ import glob
 import json
 import math
 import os
+from datetime import datetime
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -73,6 +74,30 @@ def latest_metric(rows: list[dict[str, Any]], key: str) -> Any:
 
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
+
+
+def parse_iso_ts(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def elapsed_hours(rows: list[dict[str, Any]]) -> list[float | None]:
+    times = [parse_iso_ts(r.get("timestamp_utc")) for r in rows]
+    valid = [t for t in times if t is not None]
+    if not valid:
+        return [None] * len(rows)
+    t0 = min(valid)
+    out: list[float | None] = []
+    for t in times:
+        if t is None:
+            out.append(None)
+        else:
+            out.append((t - t0).total_seconds() / 3600.0)
+    return out
 
 
 def main() -> int:
@@ -141,6 +166,38 @@ def main() -> int:
         plt.legend()
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "fig_eval_loss.png"), dpi=180)
+    plt.close()
+
+    # PPL vs wall-clock time (from eval checkpoints)
+    plt.figure(figsize=(10, 6))
+    plotted = False
+    for run in runs:
+        eval_rows = [r for r in run["eval_rows"] if "eval_loss" in r]
+        if not eval_rows:
+            continue
+        xs_all = elapsed_hours(eval_rows)
+        xs = []
+        ys = []
+        for row, x in zip(eval_rows, xs_all):
+            if x is None:
+                continue
+            try:
+                ppl = math.exp(float(row["eval_loss"]))
+            except Exception:
+                continue
+            xs.append(x)
+            ys.append(ppl)
+        if xs and ys:
+            plotted = True
+            plt.plot(xs, ys, marker="o", linewidth=1.6, markersize=3.0, label=run["label"])
+    if plotted:
+        plt.xlabel("Wall-clock time (hours)")
+        plt.ylabel("Perplexity")
+        plt.title("GPT-2/C4 Perplexity vs Wall-Clock Time")
+        plt.grid(alpha=0.25)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "fig_ppl_vs_wallclock.png"), dpi=180)
     plt.close()
 
     # Efficiency bar figure
