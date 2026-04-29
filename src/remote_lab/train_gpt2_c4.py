@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory")
     parser.add_argument("--dataset-path", type=str, default="~/datasets/text/c4-realnewslike", help="Path to C4 dataset")
     parser.add_argument("--num-proc", type=int, default=8, help="Worker processes for tokenization/preprocessing")
+    parser.add_argument(
+        "--dataloader-num-workers",
+        type=int,
+        default=0,
+        help="DataLoader worker processes during training/eval. Use 0 for safest multi-run stability.",
+    )
     parser.add_argument("--max-steps", type=int, default=50000, help="Total training steps")
     parser.add_argument("--eval-steps", type=int, default=1000, help="Evaluate every N steps")
     parser.add_argument("--save-steps", type=int, default=5000, help="Save checkpoint every N steps")
@@ -281,7 +287,7 @@ def build_training_arguments(args: argparse.Namespace) -> TrainingArguments:
         "load_best_model_at_end": False,
         "seed": args.seed,
         "report_to": "none",
-        "dataloader_num_workers": 4,
+        "dataloader_num_workers": args.dataloader_num_workers,
         "remove_unused_columns": False,
     }
 
