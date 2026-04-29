@@ -180,6 +180,84 @@ def compute_parameter_summary(model: GPT2LMHeadModel) -> dict:
     return {"total_params": total, "attention_params": attn, "non_attention_params": total - attn}
 
 
+def compute_attention_theory_summary(args: argparse.Namespace, config: GPT2Config) -> dict:
+    d = int(config.n_embd)
+    H = int(config.n_head)
+    L = int(config.n_layer)
+    T = int(args.seq_length)
+    d_k = d // H
+
+    variant = str(args.variant)
+    note = None
+
+    if variant == "baseline":
+        per_layer_qk_params = 2 * d * d
+        per_layer_attn_params = 4 * d * d
+        per_layer_qk_flops = 4 * T * d * d + 2 * T * T * d
+        per_layer_attn_flops = 8 * T * d * d + 4 * T * T * d
+    elif variant == "fullyshared":
+        per_layer_qk_params = d * d
+        per_layer_attn_params = 3 * d * d
+        per_layer_qk_flops = 4 * T * d * d + 2 * T * T * d
+        per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
+        note = "Current implementation applies the shared query-key projection twice; FLOPs match baseline unless fused."
+    elif variant == "lowrank":
+        r = int(args.rank)
+        per_layer_qk_params = 2 * H * (d * r + r * d_k)
+        per_layer_attn_params = per_layer_qk_params + 2 * d * d
+        per_layer_qk_flops = 4 * T * H * (d * r + r * d_k) + 2 * T * T * d
+        per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
+    elif variant == "bbt":
+        r = int(args.rank)
+        per_layer_qk_params = d * r
+        per_layer_attn_params = per_layer_qk_params + 2 * d * d
+        per_layer_qk_flops = 2 * T * d * r + 2 * H * T * T * r
+        per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
+    elif variant == "bmb":
+        r = int(args.rank)
+        per_layer_qk_params = d * r + (H + 1) * r * r
+        per_layer_attn_params = per_layer_qk_params + 2 * d * d
+        per_layer_qk_flops = 2 * T * d * r + 2 * H * T * r * r + 2 * H * T * T * r
+        per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
+    elif variant == "bmbuv":
+        r = int(args.rank)
+        s = int(args.factor_rank or args.rank)
+        per_layer_qk_params = d * r + 2 * H * r * s
+        per_layer_attn_params = per_layer_qk_params + 2 * d * d
+        per_layer_qk_flops = 2 * T * d * r + 4 * T * H * r * s + 2 * T * T * H * s
+        per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
+    elif variant == "partialshared":
+        m = int(args.shared_dim)
+        p = d_k - m
+        if p < 0:
+            raise ValueError(f"shared_dim ({m}) cannot exceed head_dim ({d_k})")
+        per_layer_qk_params = d * H * (m + 2 * p)
+        per_layer_attn_params = per_layer_qk_params + 2 * d * d
+        per_layer_qk_flops = 2 * T * d * H * (m + 2 * p) + 2 * T * T * d
+        per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
+        note = "Current partialshared implementation shares the tied Q/K block within each head; it does not use one projection matrix across all heads."
+    else:
+        raise ValueError(f"Unsupported variant for theory summary: {variant}")
+
+    return {
+        "variant": variant,
+        "num_layers": L,
+        "num_heads": H,
+        "model_dim": d,
+        "head_dim": d_k,
+        "seq_length": T,
+        "per_layer_qk_params": int(per_layer_qk_params),
+        "per_layer_attention_params": int(per_layer_attn_params),
+        "total_qk_params": int(L * per_layer_qk_params),
+        "total_attention_params": int(L * per_layer_attn_params),
+        "per_example_qk_flops_per_layer": int(per_layer_qk_flops),
+        "per_example_attention_flops_per_layer": int(per_layer_attn_flops),
+        "per_example_qk_flops_total": int(L * per_layer_qk_flops),
+        "per_example_attention_flops_total": int(L * per_layer_attn_flops),
+        "note": note,
+    }
+
+
 def main() -> int:
     args = parse_args()
     torch.manual_seed(args.seed)
@@ -218,8 +296,15 @@ def main() -> int:
         print(f"Replaced attention with variant: {args.variant}, kwargs: {variant_kwargs}")
 
     param_info = compute_parameter_summary(model)
+    attention_theory_summary = compute_attention_theory_summary(args, config)
     print(f"Total params: {param_info['total_params']:,}")
     print(f"Attention params: {param_info['attention_params']:,}")
+    print(
+        "Per-layer QK params:",
+        f"{attention_theory_summary['per_layer_qk_params']:,}",
+        "| Per-example attention FLOPs/layer:",
+        f"{attention_theory_summary['per_example_attention_flops_per_layer']:,}",
+    )
 
     # 6. Training arguments
     effective_batch = args.per_device_batch_size * args.gradient_accumulation_steps
@@ -263,7 +348,9 @@ def main() -> int:
     )
 
     # 7. Train
-    trainer.train()
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    train_result = trainer.train()
     trainer.save_model(os.path.join(args.output_dir, "final"))
     tokenizer.save_pretrained(os.path.join(args.output_dir, "final"))
 
@@ -274,12 +361,51 @@ def main() -> int:
     print(f"Final perplexity: {perplexity:.2f}")
 
     # Save summary
+    train_metrics = dict(train_result.metrics)
+    train_runtime = float(train_metrics.get("train_runtime", 0.0) or 0.0)
+    train_steps = int(train_metrics.get("global_step", args.max_steps) or args.max_steps)
+    tokens_per_step = (
+        args.per_device_batch_size
+        * args.gradient_accumulation_steps
+        * args.seq_length
+    )
+    total_train_tokens = tokens_per_step * train_steps
+    total_eval_tokens = len(val_ds) * args.seq_length
+
+    efficiency_summary = {
+        "tokens_per_step": int(tokens_per_step),
+        "total_train_tokens": int(total_train_tokens),
+        "train_runtime_sec": train_runtime,
+        "step_wall_clock_sec": (train_runtime / train_steps) if train_steps > 0 and train_runtime > 0 else None,
+        "train_tokens_per_sec": (total_train_tokens / train_runtime) if train_runtime > 0 else None,
+        "eval_runtime_sec": float(eval_results.get("eval_runtime", 0.0) or 0.0),
+        "eval_tokens_per_sec": (
+            total_eval_tokens / float(eval_results.get("eval_runtime", 0.0))
+            if float(eval_results.get("eval_runtime", 0.0) or 0.0) > 0
+            else None
+        ),
+        "train_steps_per_sec": train_metrics.get("train_steps_per_second"),
+        "train_samples_per_sec": train_metrics.get("train_samples_per_second"),
+        "eval_steps_per_sec": eval_results.get("eval_steps_per_second"),
+        "eval_samples_per_sec": eval_results.get("eval_samples_per_second"),
+        "peak_cuda_memory_allocated_mb": (
+            torch.cuda.max_memory_allocated() / (1024**2) if torch.cuda.is_available() else None
+        ),
+        "peak_cuda_memory_reserved_mb": (
+            torch.cuda.max_memory_reserved() / (1024**2) if torch.cuda.is_available() else None
+        ),
+    }
+
     summary = {
         "variant": args.variant,
         "variant_kwargs": variant_kwargs,
         "param_info": param_info,
+        "attention_theory_summary": attention_theory_summary,
+        "train_metrics": train_metrics,
         "eval_loss": eval_results["eval_loss"],
+        "eval_metrics": eval_results,
         "perplexity": perplexity,
+        "efficiency_summary": efficiency_summary,
         "training_args": training_args.to_dict(),
     }
     with open(os.path.join(args.output_dir, "summary.json"), "w") as f:
