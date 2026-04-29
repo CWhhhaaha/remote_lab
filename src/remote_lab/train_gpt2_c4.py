@@ -16,6 +16,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import sys
@@ -231,11 +232,10 @@ def compute_attention_theory_summary(args: argparse.Namespace, config: GPT2Confi
         p = d_k - m
         if p < 0:
             raise ValueError(f"shared_dim ({m}) cannot exceed head_dim ({d_k})")
-        per_layer_qk_params = d * H * (m + 2 * p)
+        per_layer_qk_params = d * m + 2 * d * H * p
         per_layer_attn_params = per_layer_qk_params + 2 * d * d
-        per_layer_qk_flops = 2 * T * d * H * (m + 2 * p) + 2 * T * T * d
+        per_layer_qk_flops = 2 * T * d * m + 4 * T * d * H * p + 2 * T * T * d
         per_layer_attn_flops = per_layer_qk_flops + 4 * T * d * d + 2 * T * T * d
-        note = "Current partialshared implementation shares the tied Q/K block within each head; it does not use one projection matrix across all heads."
     else:
         raise ValueError(f"Unsupported variant for theory summary: {variant}")
 
@@ -256,6 +256,51 @@ def compute_attention_theory_summary(args: argparse.Namespace, config: GPT2Confi
         "per_example_attention_flops_total": int(L * per_layer_attn_flops),
         "note": note,
     }
+
+
+def build_training_arguments(args: argparse.Namespace) -> TrainingArguments:
+    """Build TrainingArguments while tolerating minor API drift across transformers versions."""
+    kwargs = {
+        "output_dir": args.output_dir,
+        "max_steps": args.max_steps,
+        "per_device_train_batch_size": args.per_device_batch_size,
+        "per_device_eval_batch_size": args.per_device_batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "learning_rate": args.learning_rate,
+        "warmup_steps": args.warmup_steps,
+        "lr_scheduler_type": "cosine",
+        "bf16": args.bf16,
+        "fp16": not args.bf16,
+        "gradient_checkpointing": args.gradient_checkpointing,
+        "eval_steps": args.eval_steps,
+        "logging_steps": args.logging_steps,
+        "save_steps": args.save_steps,
+        "save_total_limit": 2,
+        "load_best_model_at_end": False,
+        "seed": args.seed,
+        "report_to": "none",
+        "dataloader_num_workers": 4,
+        "remove_unused_columns": False,
+    }
+
+    sig = inspect.signature(TrainingArguments.__init__).parameters
+
+    if "overwrite_output_dir" in sig:
+        kwargs["overwrite_output_dir"] = True
+
+    if "evaluation_strategy" in sig:
+        kwargs["evaluation_strategy"] = "steps"
+    elif "eval_strategy" in sig:
+        kwargs["eval_strategy"] = "steps"
+
+    if "logging_strategy" in sig:
+        kwargs["logging_strategy"] = "steps"
+
+    if "save_strategy" in sig:
+        kwargs["save_strategy"] = "steps"
+
+    supported = {k: v for k, v in kwargs.items() if k in sig}
+    return TrainingArguments(**supported)
 
 
 def main() -> int:
@@ -310,32 +355,7 @@ def main() -> int:
     effective_batch = args.per_device_batch_size * args.gradient_accumulation_steps
     print(f"Effective batch size: {effective_batch}")
 
-    training_args = TrainingArguments(
-        output_dir=args.output_dir,
-        overwrite_output_dir=True,
-        max_steps=args.max_steps,
-        per_device_train_batch_size=args.per_device_batch_size,
-        per_device_eval_batch_size=args.per_device_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        learning_rate=args.learning_rate,
-        warmup_steps=args.warmup_steps,
-        lr_scheduler_type="cosine",
-        bf16=args.bf16,
-        fp16=not args.bf16,
-        gradient_checkpointing=args.gradient_checkpointing,
-        evaluation_strategy="steps",
-        eval_steps=args.eval_steps,
-        logging_strategy="steps",
-        logging_steps=args.logging_steps,
-        save_strategy="steps",
-        save_steps=args.save_steps,
-        save_total_limit=2,
-        load_best_model_at_end=False,
-        seed=args.seed,
-        report_to="none",  # disable wandb/tensorboard by default
-        dataloader_num_workers=4,
-        remove_unused_columns=False,
-    )
+    training_args = build_training_arguments(args)
 
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 

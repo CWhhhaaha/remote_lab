@@ -425,6 +425,7 @@ class GPT2PartialSharedAttention(nn.Module):
     """Partial shared QK for GPT-2 causal LM.
 
     W^Q_h = [W^{share} | W^{Q,priv}_h], W^K_h = [W^{share} | W^{K,priv}_h]
+    where W^{share} is truly shared across heads.
     """
 
     def __init__(self, config, shared_qk_dim: int, layer_idx: int | None = None):
@@ -438,9 +439,13 @@ class GPT2PartialSharedAttention(nn.Module):
             raise ValueError(f"shared_qk_dim ({shared_qk_dim}) > head_dim ({self.head_dim})")
         self.layer_idx = layer_idx
 
-        self.share = nn.Linear(self.n_embd, self.n_head * self.shared_qk_dim, bias=True)
-        self.query_priv = nn.Linear(self.n_embd, self.n_head * self.private_qk_dim, bias=True)
-        self.key_priv = nn.Linear(self.n_embd, self.n_head * self.private_qk_dim, bias=True)
+        self.share = nn.Linear(self.n_embd, self.shared_qk_dim, bias=True)
+        if self.private_qk_dim > 0:
+            self.query_priv = nn.Linear(self.n_embd, self.n_head * self.private_qk_dim, bias=True)
+            self.key_priv = nn.Linear(self.n_embd, self.n_head * self.private_qk_dim, bias=True)
+        else:
+            self.query_priv = None
+            self.key_priv = None
         self.v_proj = nn.Linear(self.n_embd, self.n_embd, bias=True)
         self.o_proj = nn.Linear(self.n_embd, self.n_embd, bias=True)
 
@@ -459,7 +464,10 @@ class GPT2PartialSharedAttention(nn.Module):
 
     def _reset_parameters(self):
         std = 0.02
-        for m in (self.share, self.query_priv, self.key_priv, self.v_proj, self.o_proj):
+        modules = [self.share, self.v_proj, self.o_proj]
+        if self.query_priv is not None:
+            modules.extend([self.query_priv, self.key_priv])
+        for m in modules:
             nn.init.normal_(m.weight, mean=0.0, std=std)
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
@@ -483,12 +491,17 @@ class GPT2PartialSharedAttention(nn.Module):
     ) -> tuple[torch.Tensor, ...]:
         B, T, C = hidden_states.size()
 
-        share = self._project(hidden_states, self.share, self.shared_qk_dim)
-        q_priv = self._project(hidden_states, self.query_priv, self.private_qk_dim)
-        k_priv = self._project(hidden_states, self.key_priv, self.private_qk_dim)
+        share = self.share(hidden_states)  # [B, T, m]
+        share = share.unsqueeze(1).expand(-1, self.n_head, -1, -1)
 
-        q = torch.cat([share, q_priv], dim=-1)
-        k = torch.cat([share, k_priv], dim=-1)
+        if self.private_qk_dim > 0:
+            q_priv = self._project(hidden_states, self.query_priv, self.private_qk_dim)
+            k_priv = self._project(hidden_states, self.key_priv, self.private_qk_dim)
+            q = torch.cat([share, q_priv], dim=-1)
+            k = torch.cat([share, k_priv], dim=-1)
+        else:
+            q = share
+            k = share
         v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
