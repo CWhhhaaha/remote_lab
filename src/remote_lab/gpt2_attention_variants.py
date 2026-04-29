@@ -408,8 +408,16 @@ class GPT2SymmetricLatentAttention(nn.Module):
         head_mats = self.head_matrices()  # [H, r, r]
         att = torch.einsum("btr,hrs,bus->bhtu", latent, head_mats, latent)
         att = att * (1.0 / math.sqrt(self.latent_rank))
-        causal_mask = self.bias[:, :, :T, :T]
-        att = att.masked_fill(causal_mask == 0, float("-inf"))
+        causal = torch.triu(
+            torch.full(
+                (T, T),
+                float("-inf"),
+                device=att.device,
+                dtype=att.dtype,
+            ),
+            diagonal=1,
+        )
+        att = att + causal
         if attention_mask is not None:
             att = att + attention_mask
 
