@@ -258,6 +258,169 @@ class GPT2UVLatentAttention(nn.Module):
         return (y, att if output_attentions else None)
 
 
+class GPT2BBTAttention(nn.Module):
+    """BBT attention for GPT-2 causal LM.
+
+    A shared latent basis forms identical query/key coordinates for all heads.
+    Head diversity is carried only by the value pathway.
+    """
+
+    def __init__(self, config, latent_rank: int, layer_idx: int | None = None):
+        super().__init__()
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+        self.head_dim = self.n_embd // self.n_head
+        self.latent_rank = int(latent_rank)
+        self.layer_idx = layer_idx
+
+        self.basis = nn.Linear(self.n_embd, self.latent_rank, bias=False)
+        self.v_proj = nn.Linear(self.n_embd, self.n_embd, bias=True)
+        self.o_proj = nn.Linear(self.n_embd, self.n_embd, bias=True)
+
+        self.attn_dropout = nn.Dropout(config.attn_pdrop)
+        self.resid_dropout = nn.Dropout(config.resid_pdrop)
+
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
+                1, 1, config.n_positions, config.n_positions
+            ),
+            persistent=False,
+        )
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        std = 0.02
+        nn.init.normal_(self.basis.weight, mean=0.0, std=std)
+        nn.init.normal_(self.v_proj.weight, mean=0.0, std=std)
+        nn.init.normal_(self.o_proj.weight, mean=0.0, std=std)
+        for m in (self.v_proj, self.o_proj):
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        past_key_values: Any | None = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
+        use_cache: bool = False,
+        output_attentions: bool = False,
+        **kwargs: Any,
+    ) -> tuple[torch.Tensor, ...]:
+        B, T, C = hidden_states.size()
+
+        latent = self.basis(hidden_states)  # [B, T, r]
+        q = latent.unsqueeze(1).expand(-1, self.n_head, -1, -1)
+        k = latent.unsqueeze(1).expand(-1, self.n_head, -1, -1)
+        v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+
+        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.latent_rank))
+        causal_mask = self.bias[:, :, :T, :T]
+        att = att.masked_fill(causal_mask == 0, float("-inf"))
+        if attention_mask is not None:
+            att = att + attention_mask
+
+        att = torch.softmax(att, dim=-1)
+        att = self.attn_dropout(att)
+
+        y = att @ v
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = self.resid_dropout(self.o_proj(y))
+
+        return (y, att if output_attentions else None)
+
+
+class GPT2SymmetricLatentAttention(nn.Module):
+    """BMB attention for GPT-2 causal LM.
+
+    Heads share a latent basis but use head-specific bilinear interaction
+    operators inside that basis.
+    """
+
+    def __init__(self, config, latent_rank: int, layer_idx: int | None = None):
+        super().__init__()
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+        self.head_dim = self.n_embd // self.n_head
+        self.latent_rank = int(latent_rank)
+        self.layer_idx = layer_idx
+
+        self.basis = nn.Linear(self.n_embd, self.latent_rank, bias=False)
+        self.core = nn.Parameter(torch.empty(self.latent_rank, self.latent_rank))
+        self.head_residual = nn.Parameter(
+            torch.empty(self.n_head, self.latent_rank, self.latent_rank)
+        )
+        self.v_proj = nn.Linear(self.n_embd, self.n_embd, bias=True)
+        self.o_proj = nn.Linear(self.n_embd, self.n_embd, bias=True)
+
+        self.attn_dropout = nn.Dropout(config.attn_pdrop)
+        self.resid_dropout = nn.Dropout(config.resid_pdrop)
+
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
+                1, 1, config.n_positions, config.n_positions
+            ),
+            persistent=False,
+        )
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        std = 0.02
+        nn.init.normal_(self.basis.weight, mean=0.0, std=std)
+        nn.init.normal_(self.v_proj.weight, mean=0.0, std=std)
+        nn.init.normal_(self.o_proj.weight, mean=0.0, std=std)
+        if self.v_proj.bias is not None:
+            nn.init.zeros_(self.v_proj.bias)
+        if self.o_proj.bias is not None:
+            nn.init.zeros_(self.o_proj.bias)
+        nn.init.normal_(self.core, mean=0.0, std=std)
+        nn.init.normal_(self.head_residual, mean=0.0, std=std / 10.0)
+
+    def latent_core(self) -> torch.Tensor:
+        return 0.5 * (self.core + self.core.transpose(0, 1))
+
+    def head_matrices(self) -> torch.Tensor:
+        centered = self.head_residual - self.head_residual.mean(dim=0, keepdim=True)
+        return self.latent_core().unsqueeze(0) / float(self.n_head) + centered
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        past_key_values: Any | None = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_hidden_states: torch.Tensor | None = None,
+        encoder_attention_mask: torch.Tensor | None = None,
+        use_cache: bool = False,
+        output_attentions: bool = False,
+        **kwargs: Any,
+    ) -> tuple[torch.Tensor, ...]:
+        B, T, C = hidden_states.size()
+
+        latent = self.basis(hidden_states)  # [B, T, r]
+        head_mats = self.head_matrices()  # [H, r, r]
+        att = torch.einsum("btr,hrs,bus->bhtu", latent, head_mats, latent)
+        att = att * (1.0 / math.sqrt(self.latent_rank))
+        causal_mask = self.bias[:, :, :T, :T]
+        att = att.masked_fill(causal_mask == 0, float("-inf"))
+        if attention_mask is not None:
+            att = att + attention_mask
+
+        att = torch.softmax(att, dim=-1)
+        att = self.attn_dropout(att)
+
+        v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        y = att @ v
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = self.resid_dropout(self.o_proj(y))
+
+        return (y, att if output_attentions else None)
+
+
 class GPT2PartialSharedAttention(nn.Module):
     """Partial shared QK for GPT-2 causal LM.
 
@@ -351,6 +514,12 @@ def replace_gpt2_attention(model: nn.Module, variant: str, **kwargs: Any) -> Non
             block.attn = GPT2LowRankAttention(model.config, low_rank=kwargs["rank"], layer_idx=i)
         elif variant == "fullyshared":
             block.attn = GPT2FullySharedAttention(model.config, layer_idx=i)
+        elif variant == "bbt":
+            block.attn = GPT2BBTAttention(model.config, latent_rank=kwargs["rank"], layer_idx=i)
+        elif variant == "bmb":
+            block.attn = GPT2SymmetricLatentAttention(
+                model.config, latent_rank=kwargs["rank"], layer_idx=i
+            )
         elif variant == "bmbuv":
             block.attn = GPT2UVLatentAttention(
                 model.config,

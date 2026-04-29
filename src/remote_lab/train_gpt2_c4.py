@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         "--variant",
         type=str,
         default="baseline",
-        choices=["baseline", "lowrank", "fullyshared", "bmbuv", "partialshared"],
+        choices=["baseline", "lowrank", "fullyshared", "bbt", "bmb", "bmbuv", "partialshared"],
         help="Attention variant to use",
     )
     parser.add_argument("--rank", type=int, default=32, help="Rank for lowrank/bmbuv")
@@ -203,6 +203,10 @@ def main() -> int:
 
     variant_kwargs = {}
     if args.variant == "lowrank":
+        variant_kwargs = {"rank": args.rank}
+    elif args.variant == "bbt":
+        variant_kwargs = {"rank": args.rank}
+    elif args.variant == "bmb":
         variant_kwargs = {"rank": args.rank}
     elif args.variant == "bmbuv":
         variant_kwargs = {"rank": args.rank, "factor_rank": args.factor_rank or args.rank}
