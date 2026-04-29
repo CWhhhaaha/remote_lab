@@ -10,7 +10,50 @@ import math
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import nn
+
+
+def _sdpa_or_manual(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    *,
+    scale_dim: int,
+    attn_dropout: nn.Dropout,
+    training: bool,
+    attention_mask: torch.Tensor | None,
+    output_attentions: bool,
+):
+    """Use PyTorch SDPA when possible, otherwise fall back to explicit attention."""
+    if not output_attentions:
+        y = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attention_mask,
+            dropout_p=attn_dropout.p if training else 0.0,
+            is_causal=True,
+        )
+        return y, None
+
+    att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(scale_dim))
+    causal = torch.triu(
+        torch.full(
+            (q.size(-2), k.size(-2)),
+            float("-inf"),
+            device=q.device,
+            dtype=q.dtype,
+        ),
+        diagonal=1,
+    )
+    att = att + causal
+    if attention_mask is not None:
+        att = att + attention_mask
+    att = torch.softmax(att, dim=-1)
+    att = attn_dropout(att)
+    y = att @ v
+    return y, att
 
 
 class GPT2LowRankAttention(nn.Module):
@@ -41,14 +84,6 @@ class GPT2LowRankAttention(nn.Module):
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
 
         # Causal mask buffer
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
-                1, 1, config.n_positions, config.n_positions
-            ),
-            persistent=False,
-        )
-
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -86,21 +121,20 @@ class GPT2LowRankAttention(nn.Module):
         v = self.v_proj(hidden_states)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        # Causal self-attention
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
-        causal_mask = self.bias[:, :, :T, :T]
-        att = att.masked_fill(causal_mask == 0, float("-inf"))
-        if attention_mask is not None:
-            att = att + attention_mask
-
-        att = torch.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-
-        y = att @ v
+        y, att = _sdpa_or_manual(
+            q,
+            k,
+            v,
+            scale_dim=self.head_dim,
+            attn_dropout=self.attn_dropout,
+            training=self.training,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+        )
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        return (y, att if output_attentions else None)
+        return (y, att)
 
 
 class GPT2FullySharedAttention(nn.Module):
@@ -119,14 +153,6 @@ class GPT2FullySharedAttention(nn.Module):
 
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
-
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
-                1, 1, config.n_positions, config.n_positions
-            ),
-            persistent=False,
-        )
 
         self._reset_parameters()
 
@@ -152,24 +178,25 @@ class GPT2FullySharedAttention(nn.Module):
     ) -> tuple[torch.Tensor, ...]:
         B, T, C = hidden_states.size()
 
-        q = self.query_key(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        k = self.query_key(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        qk = self.query_key(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        q = qk
+        k = qk
         v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
-        causal_mask = self.bias[:, :, :T, :T]
-        att = att.masked_fill(causal_mask == 0, float("-inf"))
-        if attention_mask is not None:
-            att = att + attention_mask
-
-        att = torch.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-
-        y = att @ v
+        y, att = _sdpa_or_manual(
+            q,
+            k,
+            v,
+            scale_dim=self.head_dim,
+            attn_dropout=self.attn_dropout,
+            training=self.training,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+        )
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        return (y, att if output_attentions else None)
+        return (y, att)
 
 
 class GPT2UVLatentAttention(nn.Module):
@@ -203,14 +230,6 @@ class GPT2UVLatentAttention(nn.Module):
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
 
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
-                1, 1, config.n_positions, config.n_positions
-            ),
-            persistent=False,
-        )
-
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -242,20 +261,20 @@ class GPT2UVLatentAttention(nn.Module):
         k = torch.einsum("btr,hrs->bhts", latent, self.v_factor)
         v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.latent_factor_rank))
-        causal_mask = self.bias[:, :, :T, :T]
-        att = att.masked_fill(causal_mask == 0, float("-inf"))
-        if attention_mask is not None:
-            att = att + attention_mask
-
-        att = torch.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-
-        y = att @ v
+        y, att = _sdpa_or_manual(
+            q,
+            k,
+            v,
+            scale_dim=self.latent_factor_rank,
+            attn_dropout=self.attn_dropout,
+            training=self.training,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+        )
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        return (y, att if output_attentions else None)
+        return (y, att)
 
 
 class GPT2BBTAttention(nn.Module):
@@ -279,14 +298,6 @@ class GPT2BBTAttention(nn.Module):
 
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
-
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
-                1, 1, config.n_positions, config.n_positions
-            ),
-            persistent=False,
-        )
 
         self._reset_parameters()
 
@@ -317,20 +328,20 @@ class GPT2BBTAttention(nn.Module):
         k = latent.unsqueeze(1).expand(-1, self.n_head, -1, -1)
         v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.latent_rank))
-        causal_mask = self.bias[:, :, :T, :T]
-        att = att.masked_fill(causal_mask == 0, float("-inf"))
-        if attention_mask is not None:
-            att = att + attention_mask
-
-        att = torch.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-
-        y = att @ v
+        y, att = _sdpa_or_manual(
+            q,
+            k,
+            v,
+            scale_dim=self.latent_rank,
+            attn_dropout=self.attn_dropout,
+            training=self.training,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+        )
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        return (y, att if output_attentions else None)
+        return (y, att)
 
 
 class GPT2SymmetricLatentAttention(nn.Module):
@@ -358,14 +369,6 @@ class GPT2SymmetricLatentAttention(nn.Module):
 
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
-
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.n_positions, config.n_positions)).view(
-                1, 1, config.n_positions, config.n_positions
-            ),
-            persistent=False,
-        )
 
         self._reset_parameters()
 
@@ -504,20 +507,20 @@ class GPT2PartialSharedAttention(nn.Module):
             k = share
         v = self.v_proj(hidden_states).view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
-        causal_mask = self.bias[:, :, :T, :T]
-        att = att.masked_fill(causal_mask == 0, float("-inf"))
-        if attention_mask is not None:
-            att = att + attention_mask
-
-        att = torch.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-
-        y = att @ v
+        y, att = _sdpa_or_manual(
+            q,
+            k,
+            v,
+            scale_dim=self.head_dim,
+            attn_dropout=self.attn_dropout,
+            training=self.training,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+        )
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.o_proj(y))
 
-        return (y, att if output_attentions else None)
+        return (y, att)
 
 
 def replace_gpt2_attention(model: nn.Module, variant: str, **kwargs: Any) -> None:
