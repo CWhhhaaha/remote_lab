@@ -384,12 +384,9 @@ class GPT2SymmetricLatentAttention(nn.Module):
         nn.init.normal_(self.core, mean=0.0, std=std)
         nn.init.normal_(self.head_residual, mean=0.0, std=std / 10.0)
 
-    def latent_core(self) -> torch.Tensor:
-        return 0.5 * (self.core + self.core.transpose(0, 1))
-
     def head_matrices(self) -> torch.Tensor:
         centered = self.head_residual - self.head_residual.mean(dim=0, keepdim=True)
-        return self.latent_core().unsqueeze(0) / float(self.n_head) + centered
+        return self.core.unsqueeze(0) / float(self.n_head) + centered
 
     def forward(
         self,

@@ -28,7 +28,7 @@ class LayerSymmetricLatentSelfAttention(nn.Module):
 
         # Shared latent basis Z = X B, implemented as a single linear map.
         self.basis = nn.Linear(hidden_size, self.latent_rank, bias=False)
-        # Symmetric latent core J = (P + P^T) / 2.
+        # Shared latent core J reused across heads.
         self.core = nn.Parameter(torch.empty(self.latent_rank, self.latent_rank))
         # Head-specific free matrices whose centered versions define zero-sum residuals.
         self.head_residual = nn.Parameter(
@@ -54,16 +54,13 @@ class LayerSymmetricLatentSelfAttention(nn.Module):
         x = x.view(new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def latent_core(self) -> torch.Tensor:
-        return 0.5 * (self.core + self.core.transpose(0, 1))
-
     def head_matrices(self) -> torch.Tensor:
         centered = self.head_residual - self.head_residual.mean(dim=0, keepdim=True)
-        return self.latent_core().unsqueeze(0) / float(self.num_attention_heads) + centered
+        return self.core.unsqueeze(0) / float(self.num_attention_heads) + centered
 
     def effective_layer_kernel(self) -> torch.Tensor:
         basis = self.basis.weight.transpose(0, 1)  # [d, r]
-        core = self.latent_core()  # [r, r], symmetric
+        core = self.core  # [r, r]
         return basis @ core @ basis.transpose(0, 1)
 
     def forward(

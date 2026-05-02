@@ -142,9 +142,9 @@ def analyze_partialshared(run_dir: str) -> list[dict]:
         q_priv = ckpt[f"vit.encoder.layer.{i}.attention.attention.query_priv.weight"]
         k_priv = ckpt[f"vit.encoder.layer.{i}.attention.attention.key_priv.weight"]
         H, d = 12, 768
-        r_s = share.shape[0] // H
+        r_s = share.shape[0]
         r_p = q_priv.shape[0] // H
-        share_h = share.view(H, r_s, d)
+        share_h = share.unsqueeze(0).expand(H, -1, -1)
         q_priv_h = q_priv.view(H, r_p, d)
         k_priv_h = k_priv.view(H, r_p, d)
         q_full = torch.cat([share_h, q_priv_h], dim=1)

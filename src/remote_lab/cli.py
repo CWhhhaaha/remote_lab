@@ -127,6 +127,10 @@ def main() -> None:
         from remote_lab.layer_partial_shared_attention import summarize_layer_partial_shared_attention
 
         attention_summary = summarize_layer_partial_shared_attention(model)
+    elif variant == "layer_partial_qk_shared":
+        from remote_lab.layer_partial_qk_shared_attention import summarize_layer_partial_qk_shared_attention
+
+        attention_summary = summarize_layer_partial_qk_shared_attention(model)
     elif variant == "layer_lowrank":
         from remote_lab.layer_lowrank_attention import summarize_layer_lowrank_attention
 

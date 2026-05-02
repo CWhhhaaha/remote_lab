@@ -193,7 +193,16 @@ def count_qk_score_parameters(model: ViTForImageClassification) -> int:
             total += sum(param.numel() for param in attention.query.parameters())
             total += sum(param.numel() for param in attention.key.parameters())
         else:
-            for attr in ("basis", "core", "head_residual", "u_factor", "v_factor"):
+            for attr in (
+                "basis",
+                "core",
+                "head_residual",
+                "u_factor",
+                "v_factor",
+                "share",
+                "query_priv",
+                "key_priv",
+            ):
                 module_or_param = getattr(attention, attr, None)
                 if module_or_param is None:
                     continue
@@ -253,6 +262,22 @@ def theoretical_attention_summary(model_config: dict[str, Any]) -> dict[str, flo
         qk_flops_per_layer = (
             2 * tokens * hidden_size * latent_rank
             + 2 * num_heads * tokens * tokens * latent_rank
+        )
+        attention_flops_per_layer = (
+            qk_flops_per_layer
+            + 4 * tokens * hidden_size * hidden_size
+            + 2 * tokens * tokens * hidden_size
+        )
+    elif variant == "layer_partial_qk_shared":
+        shared_qk_dim = int(model_config["shared_qk_dim"])
+        latent_rank = None
+        latent_factor_rank = None
+        qk_params_per_layer = 2 * hidden_size * hidden_size - hidden_size * shared_qk_dim
+        attention_params_per_layer = qk_params_per_layer + 2 * hidden_size * hidden_size
+        qk_flops_per_layer = (
+            2 * tokens * hidden_size * shared_qk_dim
+            + 4 * tokens * hidden_size * (hidden_size - shared_qk_dim)
+            + 2 * tokens * tokens * hidden_size
         )
         attention_flops_per_layer = (
             qk_flops_per_layer
