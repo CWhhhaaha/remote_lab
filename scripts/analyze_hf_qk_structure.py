@@ -79,6 +79,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional JSON output path",
     )
+    parser.add_argument(
+        "--basis-source",
+        default="joint_svd",
+        choices=["joint_svd", "kernel_aligned"],
+        help=(
+            "How to construct the shared basis B. "
+            "'joint_svd' uses the top left singular vectors of [Q|K], "
+            "while 'kernel_aligned' uses the top eigenvectors of an "
+            "aggregate kernel covariance built from Q_h K_g(h)^T."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -178,6 +189,7 @@ def analyze_layer(
     head_dim: int,
     ranks: list[int],
     device: str,
+    basis_source: str,
 ) -> dict:
     import torch
 
@@ -200,10 +212,38 @@ def analyze_layer(
     k_blocks_dev = [block.to(device=device, dtype=torch.float32) for block in k_blocks]
     query_per_kv_group = num_attention_heads // num_key_value_heads
 
+    if basis_source == "joint_svd":
+        basis_bank = U
+        kernel_basis_meta = None
+    elif basis_source == "kernel_aligned":
+        aggregate = torch.zeros(
+            (hidden_size, hidden_size),
+            device=device,
+            dtype=torch.float32,
+        )
+        for q_idx, q_block in enumerate(q_blocks_dev):
+            kv_idx = q_idx // query_per_kv_group
+            kernel_ref = q_block @ k_blocks_dev[kv_idx].transpose(0, 1)
+            aggregate = aggregate + kernel_ref @ kernel_ref.transpose(0, 1)
+            aggregate = aggregate + kernel_ref.transpose(0, 1) @ kernel_ref
+        evals, evecs = torch.linalg.eigh(aggregate)
+        order = torch.argsort(evals, descending=True)
+        basis_bank = evecs[:, order]
+        top_vals = evals[order].clamp_min(0)
+        denom = top_vals.sum().clamp_min(1e-12)
+        kernel_basis_meta = {
+            "kernel_aligned_top_eigen_mass": {
+                str(rank): float(top_vals[: min(rank, top_vals.numel())].sum().item() / denom.item())
+                for rank in ranks
+            }
+        }
+    else:
+        raise ValueError(f"Unsupported basis_source: {basis_source}")
+
     reconstruction = {}
     for rank in ranks:
-        capped = min(rank, U.shape[1])
-        basis = U[:, :capped]
+        capped = min(rank, basis_bank.shape[1])
+        basis = basis_bank[:, :capped]
 
         q_errs = []
         q_hat = []
@@ -234,9 +274,11 @@ def analyze_layer(
 
     return {
         "joint_shape": list(joint.shape),
+        "basis_source": basis_source,
         "top_r_shared_subspace_energy": top_energy,
         "effective_rank": eff_rank,
         "reconstruction": reconstruction,
+        "kernel_aligned_basis_stats": kernel_basis_meta,
     }
 
 
@@ -315,6 +357,7 @@ def main() -> None:
             head_dim=head_dim,
             ranks=args.ranks,
             device=device,
+            basis_source=args.basis_source,
         )
         result["layers"][str(layer)] = layer_result
 
@@ -322,6 +365,9 @@ def main() -> None:
         for rank, energy in layer_result["top_r_shared_subspace_energy"].items():
             print(f"  top-{rank} energy = {energy:.6f}")
         print(f"  effective_rank = {layer_result['effective_rank']:.3f}")
+        if layer_result["kernel_aligned_basis_stats"] is not None:
+            for rank, mass in layer_result["kernel_aligned_basis_stats"]["kernel_aligned_top_eigen_mass"].items():
+                print(f"  kernel-basis top-{rank} mass = {mass:.6f}")
         for rank, values in layer_result["reconstruction"].items():
             print(
                 f"  r={rank}: "
