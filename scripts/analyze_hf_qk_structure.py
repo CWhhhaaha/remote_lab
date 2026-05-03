@@ -90,6 +90,17 @@ def parse_args() -> argparse.Namespace:
             "aggregate kernel covariance built from Q_h K_g(h)^T."
         ),
     )
+    parser.add_argument(
+        "--store-full-spectrum",
+        action="store_true",
+        help="Store the full singular-value spectrum and cumulative energy in the JSON output.",
+    )
+    parser.add_argument(
+        "--plot-dir",
+        type=Path,
+        default=None,
+        help="Optional directory for saving spectrum plots (PNG) per analyzed layer.",
+    )
     return parser.parse_args()
 
 
@@ -190,6 +201,7 @@ def analyze_layer(
     ranks: list[int],
     device: str,
     basis_source: str,
+    store_full_spectrum: bool,
 ) -> dict:
     import torch
 
@@ -200,10 +212,11 @@ def analyze_layer(
     U, singular_values, _ = torch.linalg.svd(joint, full_matrices=False)
 
     total_energy = (singular_values**2).sum().clamp_min(1e-12)
+    cumulative_energy = torch.cumsum(singular_values**2, dim=0) / total_energy
     top_energy = {}
     for rank in ranks:
         capped = min(rank, singular_values.numel())
-        ratio = float(((singular_values[:capped] ** 2).sum() / total_energy).item())
+        ratio = float(cumulative_energy[capped - 1].item())
         top_energy[str(rank)] = ratio
 
     eff_rank = entropy_effective_rank(singular_values)
@@ -272,7 +285,7 @@ def analyze_layer(
             "mean_kernel_error": float(sum(kernel_errs) / len(kernel_errs)),
         }
 
-    return {
+    result = {
         "joint_shape": list(joint.shape),
         "basis_source": basis_source,
         "top_r_shared_subspace_energy": top_energy,
@@ -280,6 +293,48 @@ def analyze_layer(
         "reconstruction": reconstruction,
         "kernel_aligned_basis_stats": kernel_basis_meta,
     }
+    if store_full_spectrum:
+        result["spectrum"] = {
+            "singular_values": [float(v) for v in singular_values.detach().cpu().tolist()],
+            "cumulative_energy": [float(v) for v in cumulative_energy.detach().cpu().tolist()],
+        }
+    return result
+
+
+def save_layer_plots(layer_result: dict, layer_idx: int, plot_dir: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    spectrum = layer_result.get("spectrum")
+    if spectrum is None:
+        return
+
+    singular_values = spectrum["singular_values"]
+    cumulative_energy = spectrum["cumulative_energy"]
+    xs = list(range(1, len(singular_values) + 1))
+
+    plot_dir.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(6.0, 4.0))
+    plt.plot(xs, singular_values, linewidth=1.8)
+    plt.yscale("log")
+    plt.xlabel("Rank Index")
+    plt.ylabel("Singular Value")
+    plt.title(f"Layer {layer_idx} Joint QK Spectrum")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(plot_dir / f"layer{layer_idx:02d}_joint_spectrum.png", dpi=180)
+    plt.close()
+
+    plt.figure(figsize=(6.0, 4.0))
+    plt.plot(xs, cumulative_energy, linewidth=2.0)
+    plt.xlabel("Rank Index")
+    plt.ylabel("Cumulative Energy")
+    plt.ylim(0.0, 1.01)
+    plt.title(f"Layer {layer_idx} Joint QK Cumulative Energy")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(plot_dir / f"layer{layer_idx:02d}_cumulative_energy.png", dpi=180)
+    plt.close()
 
 
 def main() -> None:
@@ -358,6 +413,7 @@ def main() -> None:
             ranks=args.ranks,
             device=device,
             basis_source=args.basis_source,
+            store_full_spectrum=args.store_full_spectrum or args.plot_dir is not None,
         )
         result["layers"][str(layer)] = layer_result
 
@@ -375,6 +431,9 @@ def main() -> None:
                 f"k_err={values['mean_k_reconstruction_error']:.6f}, "
                 f"kernel_err={values['mean_kernel_error']:.6f}"
             )
+        if args.plot_dir is not None:
+            save_layer_plots(layer_result, layer, args.plot_dir)
+            print(f"  plots saved under {args.plot_dir}")
 
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
